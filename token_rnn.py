@@ -1,4 +1,5 @@
 import torch
+from util import dev
 from torch import nn
 
 class TokenRNNLM(nn.Module):
@@ -18,7 +19,10 @@ class TokenRNNLM(nn.Module):
     def forward(self, idx, hidden=None, targets=None):
         assert(idx.dim() == 2)
         if hidden is None:
-            hidden = torch.zeros(idx.shape + (self.hidden_size,)).cuda()
+            hidden = torch.zeros(idx.shape + (self.hidden_size,)).to(dev())
+
+        print(hidden)
+        print(idx)
         # input is sparse character indices, shaped (B,T,C)
         combined = torch.cat( (self.token_embedding_table(idx), hidden), 2)
         hidden = self.i2h(combined)
@@ -34,6 +38,7 @@ class TokenRNNLM(nn.Module):
         return logits, hidden, loss
       
     def generate(self, idx, max_new_tokens):
+        idx = idx.to(dev())
         # idx is (B, T) array of indices in the current context
         assert(idx.dim() == 2)
         assert(idx.shape[1] >= 1)
@@ -45,7 +50,7 @@ class TokenRNNLM(nn.Module):
         for i in range(idx.shape[1]):
             logits, h, loss = self(idx.select(1, i)[None, :], h)
 
-        preds = torch.zeros(idx.shape[0], 0).cuda()
+        preds = torch.zeros(idx.shape[0], 0).to(dev())
         for _ in range(max_new_tokens):
             # focus only on the last time step
             logits = logits[:, -1, :] # becomes (B, C)
