@@ -1,12 +1,6 @@
 import torch
-from datasets import load_dataset
+import datasets
 from transformers import BertTokenizer
-
-def load_dataset(name, config, split='train', streaming=False):
-    ds = load_dataset(name, cfg, split=split, streaming=True)
-    if streaming:
-        return ds.shuffle(buffer_size=8192)
-    return ds.shuffle()
 
 # e.g., dataset = load_dataset("the_pile", split='train', streaming=True)
 TOKENIZER=None
@@ -29,6 +23,18 @@ def encode(s, max_length=8192, add_special_tokens=True):
 
 decode = _tokenizer().decode
 
+def load_dataset(name, config, split='train', streaming=True):
+    ds = datasets.load_dataset(name, config, split=split, streaming=streaming)
+    if streaming:
+        shuf = ds.shuffle(buffer_size=8192)
+    else:
+        shuf = ds.shuffle()
+    def encode_example(item):
+        item['encoded'] = encode(item['text'])
+        return item
+    return shuf.map(encode_example)
 
-
-
+if __name__ == "__main__":
+    ds = load_dataset("the_pile", config="pubmed", split='train', streaming=True)
+    for x in ds.take(3):
+        print(x['text'])
