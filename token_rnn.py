@@ -1,6 +1,8 @@
 import torch
 from util import dev
 from torch import nn
+from torch.nn import functional as F
+
 
 class TokenRNNLM(nn.Module):
     def __init__(self, vocab_size, embedding_width=384, hidden_size=1024):
@@ -20,9 +22,6 @@ class TokenRNNLM(nn.Module):
         assert(idx.dim() == 2)
         if hidden is None:
             hidden = torch.zeros(idx.shape + (self.hidden_size,)).to(dev())
-
-        print(hidden)
-        print(idx)
         # input is sparse character indices, shaped (B,T,C)
         combined = torch.cat( (self.token_embedding_table(idx), hidden), 2)
         hidden = self.i2h(combined)
