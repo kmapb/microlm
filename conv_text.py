@@ -4,8 +4,35 @@ from torch import nn
 from torch.nn import functional as F
 
 
-class TokenRNNLM(nn.Module):
-    def __init__(self, vocab_size, embedding_width=384, hidden_size=1024):
+class FilterBank(nn.Module):
+    def __init__(self, channels_in, channels_out, width, filter_depth):
+        super(FilterBank, self).__init__()
+        self.f = nn.Sequential(
+          nn.Conv2d(channels_in, channels_out, (width, filter_depth)),
+          nn.MaxPool2d((1, 2)),
+          nn.ReLU())
+
+    def forward(self, x):
+        return self.f(x)
+
+class FilterApparatus(nn.Module):
+    def __init__(self, embedding_width):
+        super(FilterApparatus, self).__init__()
+        self.fb1 = FilterBank(1, 1024, embedding_width, 15)
+        self.fb2 = FilterBank(1024, 512, 1, 15)
+        self.fb3 = FilterBank(512, 128, 1, 15)
+        self.fb4 = FilterBank(128, 64, 1, 15)
+        self.fb5 = FilterBank(64, 64, 1, 15)
+        self.apparatus = nn.Sequential(
+            self.fb1, self.fb2, self.fb3, self.fb4, self.fb5)
+    
+    def forward(self, x):
+        return self.apparatus(x)
+
+class ConvText(nn.Module):
+    def __init__(self, vocab_size, embedding_width=384,
+            n_filters = 32,
+            filter_depth = 5):
         super(TokenRNNLM, self).__init__()
 
         self.hidden_size = hidden_size

@@ -16,9 +16,9 @@ def tokenize(text):
 def vocabulary_size():
     return len(_tokenizer().vocab)
 
-def encode(s, max_length=8192, add_special_tokens=True):
+def encode(s, add_special_tokens=True):
   return torch.tensor(
-      _tokenizer()(s, max_length=max_length, add_special_tokens=add_special_tokens)['input_ids'],
+      _tokenizer()(s, add_special_tokens=add_special_tokens)['input_ids'],
       dtype=torch.long)
 
 def decode(t):
@@ -62,7 +62,7 @@ def epoch_gen(idata, batch_size, example_length):
 def complete_prefix(m, init_str='Zounds! ', max_new_tokens=1024):
   init_context = encode(init_str, add_special_tokens=False)
   init_context = init_context[None, :]
-  return decode(m.generate(idx = init_context, max_new_tokens=max_new_tokens)[0].tolist())
+  return decode(m.generate(idx = init_context, max_new_tokens=max_new_tokens))
 
 if __name__ == "__main__":
     ds = load_dataset("the_pile", config="pubmed", split='train', streaming=True)

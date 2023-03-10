@@ -44,36 +44,55 @@ def train_batch(model, opt, xb, yb):
 def main(model, train, test, opt, batch_sz, curriculum):
     stepnum = 0
     for nbatches, bptt in curriculum:
+        K = 10 # Reporting stride
+        train_loss = 0.0
         train_gen = text_data.epoch_gen(train, batch_sz, bptt)
         test_gen = text_data.epoch_gen(test, batch_sz, bptt)
         print("Curriculum step: {} batches (batch size {}) length {}".format(nbatches, batch_sz, bptt))
+        print("Example: {}".format(text_data.decode(model.generate())))
         for i in range(0, nbatches):
             xb, yb = next(train_gen, (False, False))
             if yb is False:
                 print("Epoch done!")
                 break
-            train_loss = train_batch(model, opt, xb.to(dev()), yb.to(dev()))
-            if stepnum % 10 == 0:
+            train_loss += train_batch(model, opt, xb.to(dev()), yb.to(dev()))
+            if stepnum % K == 0:
                 tx, ty = next(test_gen, (False, False))
                 if ty is False:
                     print("Exhausted test data?")
                     test_loss = 0.0
                 else:
                     test_loss = test_batch(model, tx.to(dev()), ty.to(dev()))
-                print("Step {}: train loss {} test loss {}".format(stepnum, train_loss, test_loss))
+                print("Step {}: train loss {} test loss {}".format(stepnum, train_loss / K, test_loss))
+                train_loss = 0.0
             stepnum += 1
     
 if __name__ == "__main__":
     try:
         model = torch.load('model.pt')
+        print("restored model")
     except FileNotFoundError:
         model = None
     if model is None:   
         model = token_rnn.TokenRNNLM(text_data.vocabulary_size()).to(dev())
+        print("christened new model")
     dataset_name = 'the_pile'
     dataset_cfg = 'all'
     train = text_data.load_dataset(dataset_name, dataset_cfg, 'train')
     test = text_data.load_dataset(dataset_name, dataset_cfg, 'test')
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-    main(model, iter(train), iter(test), opt, 64, [ (1000, 10), (1000, 20) ])
-    model.save('model.pt')
+    curriculum = [
+        (1000, 10),
+        (500, 30),
+        (250, 100),
+        (100, 300),
+    #    (50, 1000)
+    ]
+    # curriculum = [ (64, 32), (100, 100)]
+    train = iter(train)
+    test = iter(test)
+    for i in range(1000):
+        main(model, train, test, opt,
+             64,
+             curriculum)
+        torch.save(model, 'model-{}.pt'.format(i))
