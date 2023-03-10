@@ -5,13 +5,30 @@ from torch.nn import functional as F
 
 
 class FilterBank(nn.Module):
-    def __init__(self, channels_in, channels_out, width, filter_depth):
+    def __init__(self,
+                 channels_in,
+                 channels_out,
+                 filter_width,
+                 filter_depth):
+        self.channels_out = channels_out
+        self.filter_width = filter_width
+        self.filter_depth = filter_depth
+        
         super(FilterBank, self).__init__()
         self.f = nn.Sequential(
-          nn.Conv2d(channels_in, channels_out, (width, filter_depth)),
+          nn.Conv2d(channels_in, channels_out, (filter_width, filter_depth)),
           nn.MaxPool2d((1, 2)),
+          nn.Dropout(),
           nn.ReLU())
 
+    def input_size(self, input_width, input_length):
+        return (1, input_width, input_length)
+
+    def output_size(self, input_width, input_length):
+        return (self.channels_out,
+                1 + (input_width - self.filter_width),
+                int((input_length - self.filter_depth + 1) / 2))
+    
     def forward(self, x):
         return self.f(x)
 
@@ -25,34 +42,50 @@ class FilterApparatus(nn.Module):
         self.fb5 = FilterBank(64, 64, 1, 15)
         self.apparatus = nn.Sequential(
             self.fb1, self.fb2, self.fb3, self.fb4, self.fb5)
+
+    def input_size(self, input_width, input_length):
+        return self.fb1.input_size(input_width, input_length)
+                                   
+    def output_size(self, input_width, input_length):
+        fb1_sz = self.fb1.output_size(input_width, input_length)
+        fb2_sz = self.fb2.output_size(fb1_sz[1], fb1_sz[2])
+        fb3_sz = self.fb3.output_size(fb2_sz[1], fb2_sz[2])
+        fb4_sz = self.fb4.output_size(fb3_sz[1], fb3_sz[2])
+        return self.fb5.output_size(fb4_sz[1], fb4_sz[2])
     
     def forward(self, x):
         return self.apparatus(x)
 
 class ConvText(nn.Module):
-    def __init__(self, vocab_size, embedding_width=384,
-            n_filters = 32,
-            filter_depth = 5):
-        super(TokenRNNLM, self).__init__()
+    def __init__(self,
+                 vocab_size = 29000,
+                 embedding_width=384,
+                 context_size=1024):
+        super(ConvText, self).__init__()
+        self.context_length = context_size
+        self.token_embedding_table = nn.Embedding(vocab_size, embedding_width).to(dev())
+        self.filter_stack = FilterApparatus(embedding_width)
+        filter_out_size = self.filter_stack.output_size(embedding_width, context_size)
+        filter_out_nparams = filter_out_size[0] * filter_out_size[1] * filter_out_size[2]
+        self.model = nn.Sequential(
+            self.filter_stack,
+            nn.Flatten(),
+            nn.Linear(filter_out_nparams, 8192),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(8192, 8192),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(8192, vocab_size)).to(dev())
 
-        self.hidden_size = hidden_size
-        self.token_embedding_table = nn.Embedding(vocab_size, embedding_width)
-        self.i2h = nn.Sequential(
-          nn.LayerNorm((embedding_width + hidden_size)),
-          nn.Linear(embedding_width + hidden_size, hidden_size),
-          nn.LeakyReLU())
-        self.i2o = nn.Sequential(
-          nn.Linear(embedding_width + hidden_size, vocab_size),
-          nn.LeakyReLU())
-
-    def forward(self, idx, hidden=None, targets=None):
-        assert(idx.dim() == 2)
-        if hidden is None:
-            hidden = torch.zeros(idx.shape + (self.hidden_size,)).to(dev())
+    def forward(self, idx, targets=None):
+        assert(idx.dim() == 2) # B,Tokens
+        padded_idx = torch.zeros((idx.shape[0], self.context_length), dtype=torch.long ).to(dev())
+        padded_idx[:, -idx.shape[1]:] = idx
+        assert(padded_idx.shape[1] == self.context_length)
         # input is sparse character indices, shaped (B,T,C)
-        combined = torch.cat( (self.token_embedding_table(idx), hidden), 2)
-        hidden = self.i2h(combined)
-        logits = self.i2o(combined)
+        projected = self.token_embedding_table(padded_idx)
+        logits = self.model(projected)
 
         if targets is None:
             loss = None
@@ -61,33 +94,19 @@ class ConvText(nn.Module):
             logits = logits.view(B * T, C)
             targets = targets.view(B * T)
             loss = F.cross_entropy(logits, targets)
-        return logits, hidden, loss
+        return logits, loss
       
-    def generate(self, idx=None, max_new_tokens=100):
+    def generate(self, idx=None, max_new_tokens=100):    
         if idx == None:
             idx = torch.zeros( (1, 1), dtype=torch.long ).to(dev())
         idx = idx.to(dev())
-        # idx is (B, T) array of indices in the current context
         assert(idx.dim() == 2)
-        assert(idx.shape[1] >= 1)
-        # Queue up the right hidden state by playing through idx
-        h = None
-        logits = None
-        loss = None
-
-        for i in range(idx.shape[1]):
-            logits, h, loss = self(idx.select(1, i)[None, :], h)
-
+        # Accumulate predicted tokens here. XXX: could just chop off tail of idx instead
         preds = torch.zeros(idx.shape[0], 0).to(dev())
+
         for _ in range(max_new_tokens):
-            # focus only on the last time step
-            logits = logits[:, -1, :] # becomes (B, C)
-            # apply softmax to get probabilities
-            probs = F.softmax(logits, dim=-1) # (B, C)
-            # sample from the distribution
-            idx = torch.multinomial(probs, num_samples=1) # (B, 1)
-            # append sampled index to the running sequence
-            preds = torch.cat((preds, idx), dim=1) # (B, T+1)
-            # get the next predictions
-            logits, h, loss = self(idx, h)
-        return preds[0].tolist()
+            logits, loss = self(idx)
+            probs = F.softmax(logits, dim=-1)
+            pred_y = torch.multinomial(probs, 1)
+            preds = torch.cat( (preds, pred_y), 1)
+        return preds
