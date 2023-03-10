@@ -54,15 +54,23 @@ class FilterApparatus(nn.Module):
         return self.fb5.output_size(fb4_sz[1], fb4_sz[2])
     
     def forward(self, x):
-        return self.apparatus(x)
+        if False:
+            return self.apparatus(x)
+        for fb in [self.fb1, self.fb2, self.fb3, self.fb4, self.fb5]:
+            y = fb(x)
+            print("x.shape {}, y.shape {}".format(x.shape, y.shape))
+            x = y
+        return y
+
 
 class ConvText(nn.Module):
     def __init__(self,
                  vocab_size = 29000,
                  embedding_width=384,
-                 context_size=1024):
+                 context_size=8192):
         super(ConvText, self).__init__()
         self.context_length = context_size
+        self.embedding_width = embedding_width
         self.token_embedding_table = nn.Embedding(vocab_size, embedding_width).to(dev())
         self.filter_stack = FilterApparatus(embedding_width)
         filter_out_size = self.filter_stack.output_size(embedding_width, context_size)
@@ -85,6 +93,11 @@ class ConvText(nn.Module):
         assert(padded_idx.shape[1] == self.context_length)
         # input is sparse character indices, shaped (B,T,C)
         projected = self.token_embedding_table(padded_idx)
+        assert len(projected.size()) == 3
+        assert projected.size()[0] == idx.size()[0] # B
+        assert projected.size()[1] == self.context_length # T
+        assert projected.size()[2] == self.embedding_width # C
+        
         logits = self.model(projected)
 
         if targets is None:
