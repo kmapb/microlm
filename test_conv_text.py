@@ -9,7 +9,8 @@ if __name__ == "__main__":
     tt = encode("The internet is a ").to(dev())
     tt = tt[None, :]
     print(ct1(tt))
-    ct1.filter_stack.fb1.forward(tt)
-    genzo = ct1.generate()
-    print("a bad prediction: {}".format(decode(genzo)))
+    genzo = ct1.generate()[0]
+    print("genzo: {}".format(genzo))
+    print(decode(genzo))
+    # print("a bad prediction: {}".format(decode(genzo)))
 
