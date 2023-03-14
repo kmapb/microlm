@@ -4,42 +4,19 @@ import token_rnn
 from util import dev
 
 def test_batch(model, xb, yb):
-    total_loss = 0
-    batch_size = xb.shape[0]
-    block_size = xb.shape[1]
-    assert(yb.shape[0] == batch_size)
-    assert(yb.shape[1] == block_size)
     with torch.no_grad():
-        hidden = None
-        for i in range(block_size):
-            xb_i = xb.select(1, i).reshape(batch_size, 1)
-            yb_i = yb.select(1, i).reshape(batch_size, 1)
-            logits, hidden, loss = model(xb_i, hidden, targets=yb_i)
-            total_loss += loss
-    return total_loss / block_size
+        logits, loss = model(xb, targets=yb)
+    return loss
 
 def train_batch(model, opt, xb, yb):
   # sample a batch of data
   opt.zero_grad(set_to_none=True)
-  total_loss = 0
-
-  batch_size = xb.shape[0]
-  block_size = xb.shape[1]
-  assert(yb.shape[0] == batch_size)
-  assert(yb.shape[1] == block_size)
   
   # evaluate the loss
-  hidden = None
-  for i in range(block_size):
-      xb_i = xb.select(1, i).reshape(batch_size, 1)
-      yb_i = yb.select(1, i).reshape(batch_size, 1)
-      logits, hidden, loss = model(xb_i, hidden, targets=yb_i)
-      total_loss += loss
-
-  total_loss /= block_size
-  total_loss.backward()
+  logits, loss = model(xb, targets=yb)
+  loss.backward()
   opt.step()
-  return total_loss
+  return loss
 
 def main(model, train, test, opt, batch_sz, curriculum):
     stepnum = 0
@@ -67,14 +44,26 @@ def main(model, train, test, opt, batch_sz, curriculum):
                 train_loss = 0.0
             stepnum += 1
     
+
 if __name__ == "__main__":
+    CFG= {
+        'model': 'conv_text',
+        'dataset': 'the_pile',
+        'dataset_cfg': 'all',
+        'fname' : 'model-conv-text'
+    }
     try:
-        model = torch.load('model.pt')
+        model = torch.load(CFG['fname'])
         print("restored model")
     except FileNotFoundError:
         model = None
     if model is None:   
-        model = token_rnn.TokenRNNLM(text_data.vocabulary_size()).to(dev())
+        if CFG['model'] == 'conv_text':
+            from conv_text import ConvText
+            print("convo!!!")
+            model = ConvText(text_data.vocabulary_size(), 384, 8192).to(dev())
+        else:
+            model = token_rnn.TokenRNNLM(text_data.vocabulary_size()).to(dev())
         print("christened new model")
     dataset_name = 'the_pile'
     dataset_cfg = 'all'
@@ -82,10 +71,7 @@ if __name__ == "__main__":
     test = text_data.load_dataset(dataset_name, dataset_cfg, 'test')
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     curriculum = [
-        (1000, 10),
-        (500, 30),
-        (250, 100),
-        (100, 300),
+        (1000, 8192),
     #    (50, 1000)
     ]
     # curriculum = [ (64, 32), (100, 100)]
@@ -93,6 +79,6 @@ if __name__ == "__main__":
     test = iter(test)
     for i in range(1000):
         main(model, train, test, opt,
-             64,
+             32,
              curriculum)
-        torch.save(model, 'model-{}.pt'.format(i))
+        torch.save(model, '{}-{}.pt'.format(CFG['fname'], i))

@@ -105,9 +105,9 @@ class ConvText(nn.Module):
         if targets is None:
             loss = None
         else:
-            B, T, C = logits.shape
-            logits = logits.view(B * T, C)
-            targets = targets.view(B * T)
+            B, T = logits.shape
+            targets = targets.view(B)
+            print(logits.shape, targets.shape)
             loss = F.cross_entropy(logits, targets)
         return logits, loss
       
@@ -124,4 +124,4 @@ class ConvText(nn.Module):
             probs = F.softmax(logits, dim=-1)
             pred_y = torch.multinomial(probs, 1)
             preds = torch.cat( (preds, pred_y), 1)
-        return preds
+        return preds[0]

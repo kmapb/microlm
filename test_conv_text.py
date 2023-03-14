@@ -9,7 +9,7 @@ if __name__ == "__main__":
     tt = encode("The internet is a ").to(dev())
     tt = tt[None, :]
     print(ct1(tt))
-    genzo = ct1.generate()[0]
+    genzo = ct1.generate()
     print("genzo: {}".format(genzo))
     print(decode(genzo))
     # print("a bad prediction: {}".format(decode(genzo)))

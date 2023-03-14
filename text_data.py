@@ -51,7 +51,7 @@ def epoch_gen(idata, batch_size, example_length):
       xy_overlay = torch.cat(to_cat).split(batch_size * (example_length + 1))[0]
       xy_overlay = xy_overlay.view( (batch_size, example_length + 1))
       x = xy_overlay[:, 0:example_length]
-      y = xy_overlay[:, 1:example_length+1]
+      y = xy_overlay[:, -1]
       # Free up some memory
       enc = None
       to_cat = []
