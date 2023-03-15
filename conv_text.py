@@ -64,12 +64,16 @@ class FilterApparatus(nn.Module):
 class ConvText(nn.Module):
     def __init__(self,
                  vocab_size = 29000,
-                 embedding_width=384,
+                 embedding_width=100,
                  context_size=8192):
         super(ConvText, self).__init__()
         self.context_length = context_size
         self.embedding_width = embedding_width
+
         self.token_embedding_table = nn.Embedding(vocab_size, embedding_width).to(dev())
+        self.pos_embedding_table = nn.Embedding(vocab_size, embedding_width).to(dev())
+        self.pos_vector = torch.tensor(range(context_size), dtype=torch.int32).to(dev())
+
         self.filter_stack = FilterApparatus(embedding_width)
         filter_out_size = self.filter_stack.output_size(context_size)
         filter_out_nparams = filter_out_size[0] * filter_out_size[1]
@@ -92,10 +96,16 @@ class ConvText(nn.Module):
         padded_idx[:, -idx.shape[1]:] = idx
         assert(padded_idx.shape[1] == self.context_length)
         padded_idx = padded_idx.to(dev())
-        # embedding table produces dense, embedding per token, shaped (B,T,C). Conv
-        # layer expects (B,C,T), so:
-        projected = self.token_embedding_table(padded_idx).transpose(1,2)
-        assert len(projected.size()) == 3
+        # embedding table produces dense, embedding per token, shaped (B,T,C).
+        projected_toks = self.token_embedding_table(padded_idx)
+        projected_pos = self.pos_embedding_table(self.pos_vector)
+        projected_pos = projected_pos.expand(idx.shape[0], self.context_length, self.embedding_width)
+        
+        # Sum token and position embeddings.
+        projected = projected_toks + projected_pos
+        # Conv layer expects (B,C,T), so:
+        projected = projected.transpose(1, 2)
+        assert len(projected_toks.size()) == 3
         assert projected.size()[0] == idx.size()[0] # B
         assert projected.size()[1] == self.embedding_width # C
         assert projected.size()[2] == self.context_length # T
