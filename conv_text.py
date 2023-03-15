@@ -17,7 +17,6 @@ class FilterBank(nn.Module):
         self.f = nn.Sequential(
           nn.Conv1d(channels_in, channels_out, filter_depth),
           nn.MaxPool2d((1, 2)),
-          nn.Dropout(),
           nn.ReLU())
 
     def input_size(self, input_length):
@@ -71,7 +70,7 @@ class ConvText(nn.Module):
         self.embedding_width = embedding_width
 
         self.token_embedding_table = nn.Embedding(vocab_size, embedding_width).to(dev())
-        self.pos_embedding_table = nn.Embedding(vocab_size, embedding_width).to(dev())
+        self.pos_embedding_table = nn.Embedding(context_size, embedding_width).to(dev())
         self.pos_vector = torch.tensor(range(context_size), dtype=torch.int32).to(dev())
 
         self.filter_stack = FilterApparatus(embedding_width)
@@ -83,10 +82,8 @@ class ConvText(nn.Module):
             nn.Flatten(),
             nn.Linear(filter_out_nparams, 8192),
             nn.ReLU(),
-            nn.Dropout(),
             nn.Linear(8192, 8192),
             nn.ReLU(),
-            nn.Dropout(),
             nn.Linear(8192, vocab_size)).to(dev())
 
     def forward(self, idx, targets=None):
