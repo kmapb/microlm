@@ -84,8 +84,8 @@ class ConvText(nn.Module):
             nn.Flatten(),
             nn.Linear(filter_out_nparams, 8192),
             nn.ReLU(),
-            nn.Linear(8192, 8192),
-            nn.ReLU(),
+            # nn.Linear(8192, 8192),
+            # nn.ReLU(),
             nn.Linear(8192, vocab_size)).to(dev())
 
     def forward(self, idx, targets=None):

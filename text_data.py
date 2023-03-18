@@ -36,12 +36,17 @@ def load_dataset(name, config, split='train', streaming=True):
     return shuf.map(encode_example)
 
 
-def epoch_gen(idata, batch_size, example_length):
+def epoch_gen(idata, batch_size, example_length, max_samples=None):
+    num_samples = 0
     while True:
       to_cat = []
       obtained = 0
       # We get up to example_length + 1 to make sure we have room for the y's.
+      print("nSamp {} maxSamp {}".format(num_samples, max_samples))
       while obtained < batch_size * (example_length + 1):
+          if max_samples is not None and num_samples > max_samples:
+              return
+          num_samples += 1
           batch = next(idata, False)
           if batch is False:
               return

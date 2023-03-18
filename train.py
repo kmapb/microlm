@@ -23,7 +23,7 @@ def main(model, train, test, opt, batch_sz, nbatches, ctx_len):
     test_losses = []
     train_losses = []
     K = 10 # Reporting stride
-    train_gen = text_data.epoch_gen(train, batch_sz, ctx_len)
+    train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1000)
     test_gen = text_data.epoch_gen(test, batch_sz, ctx_len)
     print("Curriculum step: {} batches (batch size {}) length {}".format(nbatches, batch_sz, ctx_len))
     print("Example: {}".format(text_data.decode(model.generate())))
@@ -31,7 +31,8 @@ def main(model, train, test, opt, batch_sz, nbatches, ctx_len):
         xb, yb = next(train_gen, (False, False))
         if yb is False:
             print("Epoch done!")
-            break
+            train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1000)
+            continue
         l = train_batch(model, opt, xb.to(dev()), yb.to(dev()))
         train_losses.append(l)
         if stepnum % K == 0:
@@ -77,7 +78,7 @@ if __name__ == "__main__":
     dataset_cfg = 'all'
     train = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'train'))
     test = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'test'))
-    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
+    opt = torch.optim.Adam(model.parameters(), lr=3e-5)
     train_losses = []
     test_losses = []
     for i in range(1000):
