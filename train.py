@@ -55,8 +55,8 @@ if __name__ == "__main__":
         'dataset_cfg': 'all',
         'fname' : 'model-conv-text',
         'embed_width': 512,
-        'batch_size': 10,
-        'context_width': 4096,
+        'batch_size': 64,
+        'context_width': 8192,
     }
     try:
         model = torch.load(CFG['fname'])
@@ -71,6 +71,8 @@ if __name__ == "__main__":
         else:
             model = token_rnn.TokenRNNLM(text_data.vocabulary_size()).to(dev())
         print("christened new model")
+    model = torch.compile(model)
+    torch.set_float32_matmul_precision('high')
     dataset_name = 'the_pile'
     dataset_cfg = 'all'
     train = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'train'))
@@ -86,5 +88,5 @@ if __name__ == "__main__":
         train_losses += tr
         torch.save({'test': test_losses, 'train': train_losses }, "training-log.pt")
         print("Saving model",)
-        torch.save(model, '{}-{}.pt'.format(CFG['fname'], i))
+        torch.save(model.state_dict(), '{}-{}.pt'.format(CFG['fname'], i))
         print("... done)")

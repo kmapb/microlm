@@ -16,7 +16,9 @@ class FilterBank(nn.Module):
         super(FilterBank, self).__init__()
         self.f = nn.Sequential(
           nn.Conv1d(channels_in, channels_out, filter_depth),
-          nn.MaxPool2d((1, 2)),
+          nn.LocalResponseNorm(3),
+          nn.MaxPool1d(2),
+          nn.BatchNorm1d(channels_out),
           nn.ReLU())
 
     def input_size(self, input_length):
@@ -89,10 +91,9 @@ class ConvText(nn.Module):
     def forward(self, idx, targets=None):
         assert(idx.dim() == 2) # B,Tokens
 
-        padded_idx = torch.zeros((idx.shape[0], self.context_length), dtype=torch.long)
+        padded_idx = torch.zeros((idx.shape[0], self.context_length), dtype=torch.long, device=dev())
         padded_idx[:, -idx.shape[1]:] = idx
         assert(padded_idx.shape[1] == self.context_length)
-        padded_idx = padded_idx.to(dev())
         # embedding table produces dense, embedding per token, shaped (B,T,C).
         projected_toks = self.token_embedding_table(padded_idx)
         projected_pos = self.pos_embedding_table(self.pos_vector)
