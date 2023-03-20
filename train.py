@@ -23,7 +23,7 @@ def main(model, train, test, opt, batch_sz, nbatches, ctx_len):
     test_losses = []
     train_losses = []
     K = 10 # Reporting stride
-    train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1000)
+    train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1024)
     test_gen = text_data.epoch_gen(test, batch_sz, ctx_len)
     print("Curriculum step: {} batches (batch size {}) length {}".format(nbatches, batch_sz, ctx_len))
     print("Example: {}".format(text_data.decode(model.generate())))
@@ -31,7 +31,7 @@ def main(model, train, test, opt, batch_sz, nbatches, ctx_len):
         xb, yb = next(train_gen, (False, False))
         if yb is False:
             print("Epoch done!")
-            train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1000)
+            train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1024)
             continue
         l = train_batch(model, opt, xb.to(dev()), yb.to(dev()))
         train_losses.append(l)
@@ -44,7 +44,7 @@ def main(model, train, test, opt, batch_sz, nbatches, ctx_len):
                 test_loss = test_batch(model, tx.to(dev()), ty.to(dev()))
             print("Step {}: train loss {} test loss {}".format(stepnum, torch.tensor(train_losses).mean(), test_loss))
             test_losses.append(test_loss)
-            stepnum += 1
+        stepnum += 1
     print("done w/ mesobatch")
     return test_losses, train_losses
     
@@ -56,7 +56,7 @@ if __name__ == "__main__":
         'dataset_cfg': 'all',
         'fname' : 'model-conv-text',
         'embed_width': 512,
-        'batch_size': 64,
+        'batch_size': 1,
         'context_width': 8192,
     }
     try:
@@ -79,12 +79,28 @@ if __name__ == "__main__":
     train = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'train'))
     test = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'test'))
     opt = torch.optim.Adam(model.parameters(), lr=3e-5)
+    # XXXkma: keep getting the same batch over and over again
+    while True:
+        det_train = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'train', streaming=True, shuffle=False))
+        eg = text_data.epoch_gen(det_train, 1, CFG['context_width'])
+        xb, yb = next(eg, (False, False))
+        print("batch: {}: {}".format(xb[0, :20], text_data.decode(xb[0, :20])))
+        loss = train_batch(model, opt, xb.to(dev()), yb.to(dev()))
+        print(loss)
+        if loss < 1e-5:
+            print("successfully overfit!")
+            break
+
+    # XXX
+    for i in range(10000):
+        te, tr = main(model, train, test, opt, 64, 20, ctx_len=CFG['context_width'])
+        print("{}, {}".format(te, tr))
     train_losses = []
     test_losses = []
     for i in range(1000):
         te, tr = main(model, train, test, opt,
                       batch_sz=CFG['batch_size'],
-                      nbatches=20, ctx_len=CFG['context_width'])
+                      nbatches=1, ctx_len=CFG['context_width'])
         test_losses += te
         train_losses += tr
         torch.save({'test': test_losses, 'train': train_losses }, "training-log.pt")

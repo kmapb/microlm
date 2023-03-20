@@ -24,12 +24,14 @@ def encode(s, add_special_tokens=True):
 def decode(t):
     return _tokenizer().decode(t)
 
-def load_dataset(name, config, split='train', streaming=True):
+def load_dataset(name, config, split='train', streaming=True, shuffle=True):
     ds = datasets.load_dataset(name, config, split=split, streaming=streaming)
-    if streaming:
-        shuf = ds.shuffle(buffer_size=8192)
-    else:
-        shuf = ds.shuffle()
+    shuf = ds
+    if shuffle:
+        if streaming:
+            shuf = ds.shuffle(buffer_size=8192)
+        else:
+            shuf = ds.shuffle()
     def encode_example(item):
         item['encoded'] = encode(item['text'])
         return item
