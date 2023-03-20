@@ -35,10 +35,10 @@ class FilterApparatus(nn.Module):
     def __init__(self, embedding_width):
         super(FilterApparatus, self).__init__()
         self.fb1 = FilterBank(embedding_width, 1024, 3)
-        self.fb2 = FilterBank(1024, 512, 5)
-        self.fb3 = FilterBank(512, 256, 7)
-        self.fb4 = FilterBank(256, 128, 11)
-        self.fb5 = FilterBank(128, 64, 15)
+        self.fb2 = FilterBank(1024, 1024, 4)
+        self.fb3 = FilterBank(1024, 1024, 5)
+        self.fb4 = FilterBank(1024, 1024, 5)
+        self.fb5 = FilterBank(1024, 64, 5)
         self.apparatus = nn.Sequential(
             self.fb1, self.fb2, self.fb3, self.fb4, self.fb5)
 

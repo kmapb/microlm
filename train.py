@@ -10,7 +10,7 @@ def test_batch(model, xb, yb):
 
 def train_batch(model, opt, xb, yb):
   # sample a batch of data
-  opt.zero_grad(set_to_none=True)
+  opt.zero_grad()
   
   # evaluate the loss
   logits, loss = model(xb, targets=yb)
@@ -55,8 +55,8 @@ if __name__ == "__main__":
         'dataset': 'the_pile',
         'dataset_cfg': 'all',
         'fname' : 'model-conv-text',
-        'embed_width': 512,
-        'batch_size': 1,
+        'embed_width': 1024,
+        'batch_size': 8,
         'context_width': 8192,
     }
     try:
@@ -80,16 +80,38 @@ if __name__ == "__main__":
     test = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'test'))
     opt = torch.optim.Adam(model.parameters(), lr=3e-5)
     # XXXkma: keep getting the same batch over and over again
-    while True:
+    K = 20
+    step = 0
+    if True:
         det_train = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'train', streaming=True, shuffle=False))
-        eg = text_data.epoch_gen(det_train, 1, CFG['context_width'])
-        xb, yb = next(eg, (False, False))
-        print("batch: {}: {}".format(xb[0, :20], text_data.decode(xb[0, :20])))
-        loss = train_batch(model, opt, xb.to(dev()), yb.to(dev()))
-        print(loss)
-        if loss < 1e-5:
-            print("successfully overfit!")
-            break
+        eg = text_data.epoch_gen(det_train, CFG['batch_size'], CFG['context_width'])
+        train_losses = []
+        test_losses = []
+
+        while True:
+            step += 1
+            if step % K == 1:
+                te, tr = main(model, train, test, opt,
+                            batch_sz=CFG['batch_size'],
+                            nbatches=1, ctx_len=CFG['context_width'])
+                print("test: {} train: {}".format(te, tr))
+                torch.save(model.state_dict(), '{}-{}.pt'.format(CFG['fname'], step))
+                test_losses += [t.cpu() for t in te]
+                train_losses += [t.cpu() for t in tr]
+                torch.save({'test': test_losses, 'train': train_losses }, "training-log.pt")
+
+            xb, yb = next(eg, (False, False))
+            if yb is False:
+                print("prefix down!")
+                break
+            xb = xb.to(dev())
+            yb = yb.to(dev())
+            print("batch: {}: {}".format(xb[0, :20], text_data.decode(xb[0, :20])))
+            loss = train_batch(model, opt, xb, yb)
+            print(loss)
+            if loss < 1e-5:
+                print("successfully overfit!")
+                import sys; sys.exit(0)
 
     # XXX
     for i in range(10000):
