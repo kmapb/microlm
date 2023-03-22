@@ -90,6 +90,7 @@ class ConvText(pl.LightningModule):
 
     def _project(self, x):
         padded_x = torch.zeros((x.shape[0], self.context_length), dtype=torch.long, device=dev())
+
         padded_x[:, -x.shape[1]:] = x
         assert(padded_x.shape[1] == self.context_length)
         projected_toks = self.token_embedding_table(padded_x)
@@ -107,14 +108,23 @@ class ConvText(pl.LightningModule):
     def forward(self, x):
         return self.model(self._project(x))
     
-    def training_step(self, batch, batch_idx):
-        import pdb; pdb.set_trace()
-        x, y = batch
+    def training_step_one(self, x, y):
         y_hat = self(x)
         B, T = y_hat.shape
         y = y.view(B)
-        print(y_hat.shape, y.shape)
         return F.cross_entropy(y_hat, y)
+    
+    def training_step(self, batch, batch_idx):
+        x = batch['input_ids']
+        y = batch['labels']
+        _, T = x.shape
+        # Pick a random prefix length. Bias? Eh.
+        i = torch.randint(1, T - 1, ()).item()
+        return self.training_step_one(x[:, :i], y[:, i])
+
+    def validation_step(self, batch, batch_idx):
+        with torch.no_grad():
+            return self.training_step(batch, batch_idx)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
