@@ -2,7 +2,7 @@ import torch
 from util import dev
 from torch import nn
 from torch.nn import functional as F
-
+import pytorch_lightning as pl
 
 class FilterBank(nn.Module):
     def __init__(self,
@@ -62,7 +62,7 @@ class FilterApparatus(nn.Module):
         return y
 
 
-class ConvText(nn.Module):
+class ConvText(pl.LightningModule):
     def __init__(self,
                  vocab_size = 29000,
                  embedding_width=100,
@@ -88,37 +88,37 @@ class ConvText(nn.Module):
             nn.ReLU(),
             nn.Linear(8192, vocab_size)).to(dev())
 
-    def forward(self, idx, targets=None):
-        assert(idx.dim() == 2) # B,Tokens
-
-        padded_idx = torch.zeros((idx.shape[0], self.context_length), dtype=torch.long, device=dev())
-        padded_idx[:, -idx.shape[1]:] = idx
-        assert(padded_idx.shape[1] == self.context_length)
-        # embedding table produces dense, embedding per token, shaped (B,T,C).
-        projected_toks = self.token_embedding_table(padded_idx)
+    def _project(self, x):
+        padded_x = torch.zeros((x.shape[0], self.context_length), dtype=torch.long, device=dev())
+        padded_x[:, -x.shape[1]:] = x
+        assert(padded_x.shape[1] == self.context_length)
+        projected_toks = self.token_embedding_table(padded_x)
         projected_pos = self.pos_embedding_table(self.pos_vector)
-        projected_pos = projected_pos.expand(idx.shape[0], self.context_length, self.embedding_width)
-        
-        # Sum token and position embeddings.
+        projected_pos = projected_pos.expand(x.shape[0], self.context_length, self.embedding_width)
         projected = projected_toks + projected_pos
         # Conv layer expects (B,C,T), so:
         projected = projected.transpose(1, 2)
         assert len(projected_toks.size()) == 3
-        assert projected.size()[0] == idx.size()[0] # B
+        assert projected.size()[0] == x.size()[0] # B
         assert projected.size()[1] == self.embedding_width # C
         assert projected.size()[2] == self.context_length # T
-        
-        logits = self.model(projected)
+        return projected
 
-        if targets is None:
-            loss = None
-        else:
-            B, T = logits.shape
-            targets = targets.view(B)
-            print(logits.shape, targets.shape)
-            loss = F.cross_entropy(logits, targets)
-        return logits, loss
-      
+    def forward(self, x):
+        return self.model(self._project(x))
+    
+    def training_step(self, batch, batch_idx):
+        import pdb; pdb.set_trace()
+        x, y = batch
+        y_hat = self(x)
+        B, T = y_hat.shape
+        y = y.view(B)
+        print(y_hat.shape, y.shape)
+        return F.cross_entropy(y_hat, y)
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
+
     def generate(self, idx=None, max_new_tokens=100):    
         if idx == None:
             idx = torch.zeros( (1, 1), dtype=torch.long ).to(dev())

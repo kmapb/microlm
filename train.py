@@ -1,6 +1,12 @@
 import torch
 import text_data
 import token_rnn
+import pytorch_lightning as pl
+from lightning_transformers.task.nlp.language_modeling import (
+    LanguageModelingDataModule,
+    LanguageModelingTransformer,
+)
+
 from util import dev
 
 def test_batch(model, xb, yb):
@@ -22,6 +28,8 @@ def main(model, train, test, opt, batch_sz, nbatches, ctx_len):
     stepnum = 0
     test_losses = []
     train_losses = []
+ 
+ 
     K = 10 # Reporting stride
     train_gen = text_data.epoch_gen(train, batch_sz, ctx_len, max_samples=1024)
     test_gen = text_data.epoch_gen(test, batch_sz, ctx_len)
@@ -59,6 +67,26 @@ if __name__ == "__main__":
         'batch_size': 8,
         'context_width': 8192,
     }
+
+    from conv_text import ConvText
+    print("convo!!!")
+    torch.set_float32_matmul_precision('medium')
+    dataset = { 'name': 'wikitext', 'config': 'wikitext-2-raw-v1'}
+    model = ConvText(text_data.vocabulary_size(), CFG['embed_width'], CFG['context_width']).to(dev())
+    dm = LanguageModelingDataModule(batch_size = CFG['batch_size'],
+                                    dataset_name = dataset['name'],
+                                    dataset_config_name = dataset['config'],
+                                    num_workers = 20,
+                                    tokenizer=text_data._tokenizer())
+    trainer = pl.Trainer(accelerator='auto', devices='auto', max_epochs=1)
+    trainer.fit(model, dm)
+    
+    curriculum = [
+        (128, 1024),
+#        (256, 512),
+ #       (512, 256),
+        
+    ]
     try:
         model = torch.load(CFG['fname'])
         print("restored model")
@@ -66,9 +94,7 @@ if __name__ == "__main__":
         model = None
     if model is None:   
         if CFG['model'] == 'conv_text':
-            from conv_text import ConvText
-            print("convo!!!")
-            model = ConvText(text_data.vocabulary_size(), CFG['embed_width'], CFG['context_width']).to(dev())
+            pass
         else:
             model = token_rnn.TokenRNNLM(text_data.vocabulary_size()).to(dev())
         print("christened new model")
@@ -83,8 +109,8 @@ if __name__ == "__main__":
     K = 20
     step = 0
     if True:
-        det_train = iter(text_data.load_dataset(dataset_name, dataset_cfg, 'train', streaming=True, shuffle=False))
-        eg = text_data.epoch_gen(det_train, CFG['batch_size'], CFG['context_width'])
+        eg = text_data.epoch_gen(train, CFG['batch_size'], CFG['context_width'])
+        train_epoch = text_data.epoch_gen(train, CFG['batch_size'], CFG['context_width'], max_samples=1024)
         train_losses = []
         test_losses = []
 
@@ -96,7 +122,6 @@ if __name__ == "__main__":
                             nbatches=1, ctx_len=CFG['context_width'])
                 print("test: {} train: {}".format(te, tr))
                 torch.save(model.state_dict(), '{}-{}.pt'.format(CFG['fname'], step))
-                test_losses += [t.cpu() for t in te]
                 train_losses += [t.cpu() for t in tr]
                 torch.save({'test': test_losses, 'train': train_losses }, "training-log.pt")
 
@@ -108,24 +133,8 @@ if __name__ == "__main__":
             yb = yb.to(dev())
             print("batch: {}: {}".format(xb[0, :20], text_data.decode(xb[0, :20])))
             loss = train_batch(model, opt, xb, yb)
+            test_losses.append(loss.cpu())
             print(loss)
             if loss < 1e-5:
                 print("successfully overfit!")
                 import sys; sys.exit(0)
-
-    # XXX
-    for i in range(10000):
-        te, tr = main(model, train, test, opt, 64, 20, ctx_len=CFG['context_width'])
-        print("{}, {}".format(te, tr))
-    train_losses = []
-    test_losses = []
-    for i in range(1000):
-        te, tr = main(model, train, test, opt,
-                      batch_sz=CFG['batch_size'],
-                      nbatches=1, ctx_len=CFG['context_width'])
-        test_losses += te
-        train_losses += tr
-        torch.save({'test': test_losses, 'train': train_losses }, "training-log.pt")
-        print("Saving model",)
-        torch.save(model.state_dict(), '{}-{}.pt'.format(CFG['fname'], i))
-        print("... done)")

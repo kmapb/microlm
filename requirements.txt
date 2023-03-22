@@ -3,3 +3,5 @@ datasets
 jupyter
 transformers
 zstandard
+pytorch_lightning
+lightning_transformers
