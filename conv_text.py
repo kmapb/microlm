@@ -1,8 +1,8 @@
 import torch
-from util import dev
 from torch import nn
 from torch.nn import functional as F
 import pytorch_lightning as pl
+from util import dev
 
 class FilterBank(nn.Module):
     def __init__(self,
@@ -31,9 +31,68 @@ class FilterBank(nn.Module):
     def forward(self, x):
         return self.f(x)
 
+class ReConvText(pl.LightningModule):
+    def __init__(self, vocab_size=29000, filter_width=5, dim=384, fc_dim=1024):
+        super(ReConvText, self).__init__()
+        self.dim = dim
+        self.fc_dim = fc_dim
+        self.token_embedding_table = nn.Embedding(vocab_size, dim)
+        self.filter_bank = FilterBank(dim, dim, filter_width)
+        self.head = nn.Sequential(
+            nn.Linear(fc_dim, vocab_size),
+            nn.ReLU(),
+            # nn.ReLU(),
+            # nn.Linear(fc_dim, vocab_size),
+            # nn.ReLU(),
+        )
+
+    def forward(self, xi, _=None):    
+        x = self.token_embedding_table(xi).transpose(1, 2)
+        while True:
+            B, C, T = x.shape
+            assert C == self.dim
+            x = self.filter_bank(x)
+            # print(x.shape)
+            B_prime, C_prime, T_prime = x.shape
+            assert B_prime == B
+            assert T_prime < T
+            assert C_prime == C
+            if T_prime * C_prime < self.fc_dim:
+                break
+        padded_x = torch.zeros((B, self.fc_dim)).to(dev())
+        padded_x[:, :T_prime * C_prime] = x.flatten(start_dim = 1)
+        return self.head(padded_x)
+    
+    def training_step_one(self, x, y):
+        return F.cross_entropy(self(x), y)
+    
+    def _shared_eval(self, batch, batch_idx, prefix):
+        x = batch['input_ids']
+        y = batch['labels']
+        B, T = x.shape
+        assert y.shape == (B, T)
+        loss = self.training_step_one(x[:, :T], y[:, T-1])
+        self.log(prefix + '_loss', loss)
+        return loss
+    
+    def training_step(self, batch, batch_idx):
+        return self._shared_eval(batch, batch_idx, 'train')
+    
+    def validation_step(self, batch, batch_idx):
+        with torch.no_grad():
+            return self._shared_eval(batch, batch_idx, 'val')
+
+    def test_step(self, batch, batch_idx):
+        with torch.no_grad():
+            return self._shared_eval(batch, batch_idx, 'test')
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
+        
 class FilterApparatus(nn.Module):
     def __init__(self, embedding_width):
         super(FilterApparatus, self).__init__()
+
         self.fb1 = FilterBank(embedding_width, 1024, 3)
         self.fb2 = FilterBank(1024, 1024, 4)
         self.fb3 = FilterBank(1024, 1024, 5)
@@ -61,13 +120,14 @@ class FilterApparatus(nn.Module):
             x = y
         return y
 
-
 class ConvText(pl.LightningModule):
     def __init__(self,
                  vocab_size = 29000,
                  embedding_width=100,
                  context_size=8192):
         super(ConvText, self).__init__()
+        self.save_hyperparameters()
+
         self.context_length = context_size
         self.embedding_width = embedding_width
 
@@ -114,17 +174,28 @@ class ConvText(pl.LightningModule):
         y = y.view(B)
         return F.cross_entropy(y_hat, y)
     
-    def training_step(self, batch, batch_idx):
+    def _shared_eval(self, batch, batch_idx, prefix):
         x = batch['input_ids']
         y = batch['labels']
         _, T = x.shape
         # Pick a random prefix length. Bias? Eh.
-        i = torch.randint(1, T - 1, ()).item()
-        return self.training_step_one(x[:, :i], y[:, i])
-
+        for i in [1, 8, 64, 256, 4007, 8013]:
+            if i >= T:
+                break
+            loss = self.training_step_one(x[:, :i], y[:, i])
+        self.log(prefix + '_loss', loss)
+        return loss
+    
+    def training_step(self, batch, batch_idx):
+        return self._shared_eval(batch, batch_idx, 'train')
+    
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
-            return self.training_step(batch, batch_idx)
+            return self._shared_eval(batch, batch_idx, 'val')
+
+    def test_step(self, batch, batch_idx):
+        with torch.no_grad():
+            return self._shared_eval(batch, batch_idx, 'test')
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
@@ -143,3 +214,4 @@ class ConvText(pl.LightningModule):
             pred_y = torch.multinomial(probs, 1)
             preds = torch.cat( (preds, pred_y), 1)
         return preds[0]
+
