@@ -30,6 +30,7 @@ if __name__ == "__main__":
     
     pl.seed_everything(71177)
     dm = text_data.TextDataModule(dataset['name'], dataset['config'], streaming=dataset['streaming'])
+    # torch.use_deterministic_algorithms(True)
     trainer = pl.Trainer(accelerator='auto',
                          devices='auto',
                          # max_time={'hours': 4},
@@ -37,7 +38,8 @@ if __name__ == "__main__":
                          log_every_n_steps=1,
                          limit_val_batches=10,
                          # limit_train_batches=1, # Overfit?
-                         max_epochs=100,
+                         max_epochs=10,
+                         # deterministic=True,
                          # gradient_clip_val=0.5
                          )
     trainer.fit(model, dm)

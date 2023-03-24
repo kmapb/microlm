@@ -57,9 +57,9 @@ class ReConvText(pl.LightningModule):
             if T * C < self.fc_dim: # Very short snips: straight to FC!
                 break
             x = self.filter_bank(x)
-        padded_x = torch.zeros((B, self.fc_dim)).to(dev())
-        padded_x[:, :T * C] = x.flatten(start_dim = 1)
-        return self.head(padded_x)
+        x = F.pad(x.flatten(start_dim = 1), (0, self.fc_dim - T * C))
+        assert x.shape == (B, self.fc_dim)
+        return self.head(x)
     
     def training_step_one(self, x, y):
         return F.cross_entropy(self(x), y)
@@ -84,8 +84,8 @@ class ReConvText(pl.LightningModule):
                     n += 1
                     loss += self.training_step_one(x[:, :i-1], y[:, i-1])
             self.log(prefix + '_loss', loss/n)
-            self.log('length', T)
-            self.log('2ndchar', y[0, 1])
+            self.log('length', 1.0 * T)
+            self.log('2ndchar', 1.0 * y[0, 1])
         else:
             import pdb; pdb.set_trace()
             loss = self.training_step_one(x[:, :T-1], y[:, T-1])
