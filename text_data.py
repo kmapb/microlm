@@ -1,8 +1,8 @@
 import torch
 import datasets
+import pytorch_lightning as pl
 from transformers import BertTokenizer
 
-# e.g., dataset = load_dataset("the_pile", split='train', streaming=True)
 TOKENIZER=None
 def _tokenizer():
     global TOKENIZER
@@ -24,6 +24,7 @@ def encode(s, add_special_tokens=True):
 def decode(t):
     return _tokenizer().decode(t)
 
+# e.g., dataset = load_dataset('the_pile', 'all', split='train', streaming=True)
 def load_dataset(name, config, split='train', streaming=True, shuffle=True):
     ds = datasets.load_dataset(name, config, split=split, streaming=streaming)
     shuf = ds
@@ -37,7 +38,43 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True):
         return item
     return shuf.map(encode_example)
 
+class TextDataModule(pl.LightningDataModule):
+    def __init__(self, dataset_name, dataset_cfg, streaming=False, batch_size=20, num_workers=20):
+        super().__init__()
+        self.dataset_name = dataset_name
+        self.dataset_cfg = dataset_cfg
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        super().save_hyperparameters()
+        self.train_data_loader = load_dataset(dataset_name, dataset_cfg, split='train', streaming=streaming)
+        self.test_data_loader = load_dataset(dataset_name, dataset_cfg, split='test', streaming=streaming)
+        self.val_data_loader = load_dataset(dataset_name, dataset_cfg, split='validation', streaming=streaming)
 
+    def setup(self, stage=None):
+        pass
+    
+    def train_dataloader(self):
+        return self.train_data_loader
+    def test_dataloader(self):
+        return self.test_data_loader
+    def val_dataloader(self):
+        return self.val_data_loader
+    
+    def transfer_batch_to_device(self, batch, device: torch.device, dataloader_idx: int):
+        if 'encoded' in batch:
+            t = batch['encoded']
+            if isinstance(t, list):
+                # Hmm, list batch? Concatenate it.
+                # import pdb; pdb.set_trace()
+                t = torch.tensor(t, dtype=torch.long)
+            # Unary batch. Stick a dummy batch dimension on it.
+            t = t.to(device)[None, :]
+        else:
+            # Hmm, what in blazes is this?
+            import pdb; pdb.set_trace()
+            pass
+        return t
+    
 def epoch_gen(idata, batch_size, example_length, max_samples=None):
     num_samples = 0
     while True:

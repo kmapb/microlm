@@ -15,7 +15,7 @@ class FilterBank(nn.Module):
         
         super(FilterBank, self).__init__()
         self.f = nn.Sequential(
-          nn.Conv1d(channels_in, channels_out, filter_depth),
+          nn.Conv1d(channels_in, channels_out, filter_depth, padding='same', padding_mode='replicate'),
           nn.LocalResponseNorm(3),
           nn.MaxPool1d(2),
           nn.BatchNorm1d(channels_out),
@@ -34,16 +34,19 @@ class FilterBank(nn.Module):
 class ReConvText(pl.LightningModule):
     def __init__(self, vocab_size=29000, filter_width=5, dim=384, fc_dim=1024):
         super(ReConvText, self).__init__()
+        self.save_hyperparameters()
+
         self.dim = dim
         self.fc_dim = fc_dim
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
         self.filter_bank = FilterBank(dim, dim, filter_width)
         self.head = nn.Sequential(
+            nn.LayerNorm(fc_dim, eps=1e-6),
+            nn.Linear(fc_dim, fc_dim),
+            nn.ReLU(),
+            nn.LayerNorm(fc_dim, eps=1e-6),
             nn.Linear(fc_dim, vocab_size),
             nn.ReLU(),
-            # nn.ReLU(),
-            # nn.Linear(fc_dim, vocab_size),
-            # nn.ReLU(),
         )
 
     def forward(self, xi, _=None):    
@@ -51,28 +54,43 @@ class ReConvText(pl.LightningModule):
         while True:
             B, C, T = x.shape
             assert C == self.dim
-            x = self.filter_bank(x)
-            # print(x.shape)
-            B_prime, C_prime, T_prime = x.shape
-            assert B_prime == B
-            assert T_prime < T
-            assert C_prime == C
-            if T_prime * C_prime < self.fc_dim:
+            if T * C < self.fc_dim: # Very short snips: straight to FC!
                 break
+            x = self.filter_bank(x)
         padded_x = torch.zeros((B, self.fc_dim)).to(dev())
-        padded_x[:, :T_prime * C_prime] = x.flatten(start_dim = 1)
+        padded_x[:, :T * C] = x.flatten(start_dim = 1)
         return self.head(padded_x)
     
     def training_step_one(self, x, y):
         return F.cross_entropy(self(x), y)
     
     def _shared_eval(self, batch, batch_idx, prefix):
-        x = batch['input_ids']
-        y = batch['labels']
+        x = batch
+        y = batch
         B, T = x.shape
         assert y.shape == (B, T)
-        loss = self.training_step_one(x[:, :T], y[:, T-1])
-        self.log(prefix + '_loss', loss)
+        loss = 0.0
+        max_samples=100
+
+        if True:
+            n = 0
+            if T > max_samples:
+                for i in range(0, max_samples):
+                    i = torch.randint(low=1, high=T-1, size=()).item()
+                    n  += 1
+                    loss += self.training_step_one(x[:, :i], y[:, i])
+            else:
+                for i in range(1, T):
+                    n += 1
+                    loss += self.training_step_one(x[:, :i-1], y[:, i-1])
+            self.log(prefix + '_loss', loss/n)
+            self.log('length', T)
+            self.log('2ndchar', y[0, 1])
+        else:
+            import pdb; pdb.set_trace()
+            loss = self.training_step_one(x[:, :T-1], y[:, T-1])
+            print(loss)
+            self.log(prefix + '_loss', loss)
         return loss
     
     def training_step(self, batch, batch_idx):
@@ -112,13 +130,7 @@ class FilterApparatus(nn.Module):
         return self.fb5.output_size(fb4_sz[1])
     
     def forward(self, x):
-        if True:
-            return self.apparatus(x)
-        for fb in [self.fb1, self.fb2, self.fb3, self.fb4, self.fb5]:
-            y = fb(x)
-            print("x.shape {}, y.shape {}".format(x.shape, y.shape))
-            x = y
-        return y
+        return self.apparatus(x)
 
 class ConvText(pl.LightningModule):
     def __init__(self,
@@ -179,14 +191,20 @@ class ConvText(pl.LightningModule):
         y = batch['labels']
         _, T = x.shape
         # Pick a random prefix length. Bias? Eh.
-        for i in [1, 8, 64, 256, 4007, 8013]:
+        loss = 0.0
+        n = 0
+        lengths = [1, 8, 64, 256, 4007, 8013]
+        for i in lengths:
             if i >= T:
                 break
-            loss = self.training_step_one(x[:, :i], y[:, i])
-        self.log(prefix + '_loss', loss)
+            n += 1
+            loss += self.training_step_one(x[:, :i], y[:, i])
+        self.log(prefix + '_loss', loss / n)
         return loss
     
     def training_step(self, batch, batch_idx):
+        if True:
+            self.log("training_step", batch[0][1])
         return self._shared_eval(batch, batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
@@ -214,4 +232,20 @@ class ConvText(pl.LightningModule):
             pred_y = torch.multinomial(probs, 1)
             preds = torch.cat( (preds, pred_y), 1)
         return preds[0]
+
+
+def generate(model, idx=None, max_new_tokens=100):    
+    if idx == None:
+        idx = torch.zeros( (1, 1), dtype=torch.long ).to(dev())
+    idx = idx.to(dev())
+    assert(idx.dim() == 2)
+    # Accumulate predicted tokens here. XXX: could just chop off tail of idx instead
+    preds = torch.zeros(idx.shape[0], 0).to(dev())
+
+    for _ in range(max_new_tokens):
+        logits = model(idx)
+        probs = F.softmax(logits, dim=-1)
+        pred_y = torch.multinomial(probs, 1)
+        preds = torch.cat( (preds, pred_y), 1)
+    return preds[0]
 
