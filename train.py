@@ -1,17 +1,18 @@
 import torch
-import text_data
-import token_rnn
+# import token_rnn
 import pytorch_lightning as pl
-from pytorch_lightning.tuner import Tuner
-# from lightning_transformers.task.nlp.language_modeling import LanguageModelingDataModule
-from conv_text import ConvText, ReConvText
+
+import text_data
+from conv_text import ReConvText
 
 if __name__ == "__main__":
     import sys
     CFG= {
         'model': 'conv_text',
-        'dataset': 'bookcorpus',
-        'dataset_cfg': 'plain_text',
+        # 'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
+        # 'dataset': 'the_pile', 'dataset_cfg': 'all',
+        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-raw-v1',
+        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-raw-v1',
         'fname' : 'model-conv-text',
         'embed_width': 2048,
         'filter_height': 5,

@@ -9,11 +9,11 @@ class FilterBank(nn.Module):
                  channels_in,
                  channels_out,
                  filter_depth):
+        super(FilterBank, self).__init__()
         self.channels_in = channels_in
         self.channels_out = channels_out
         self.filter_depth = filter_depth
         
-        super(FilterBank, self).__init__()
         self.f = nn.Sequential(
           nn.Conv1d(channels_in, channels_out, filter_depth, padding='same', padding_mode='replicate'),
           nn.LocalResponseNorm(3),
@@ -46,7 +46,6 @@ class ReConvText(pl.LightningModule):
             nn.ReLU(),
             nn.LayerNorm(fc_dim, eps=1e-6),
             nn.Linear(fc_dim, vocab_size),
-            nn.ReLU(),
         )
 
     def forward(self, xi, _=None):    
@@ -82,17 +81,14 @@ class ReConvText(pl.LightningModule):
             B, T = (1, batch.shape[0])
         if T == 2:
             # Nothing to learn here: START/END.
-            z = torch.ones(1, requires_grad=True)
-            return F.cross_entropy(z, z)
+            return torch.tensor(0, dtype=torch.float32, device=self.device)
         return self._shared_eval(batch, batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
-        with torch.no_grad():
-            return self._shared_eval(batch, batch_idx, 'val')
+        return self._shared_eval(batch, batch_idx, 'val')
 
     def test_step(self, batch, batch_idx):
-        with torch.no_grad():
-            return self._shared_eval(batch, batch_idx, 'test')
+        return self._shared_eval(batch, batch_idx, 'test')
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
