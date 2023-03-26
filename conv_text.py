@@ -107,4 +107,5 @@ def generate(model, idx=None, max_new_tokens=100):
         probs = F.softmax(logits, dim=-1)
         pred_y = torch.multinomial(probs, 1)
         preds = torch.cat( (preds, pred_y), 1)
+        idx = torch.cat( (idx, pred_y), 1)
     return preds[0]
