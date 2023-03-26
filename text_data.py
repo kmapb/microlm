@@ -24,6 +24,19 @@ def encode(s, add_special_tokens=True):
 def decode(t):
     return _tokenizer().decode(t)
 
+def embatch(encoded, max_batch_size=19):
+    assert len(encoded.shape) == 1
+    # Shorten batches if they're too long
+    T = encoded.shape[0]
+    B = min(max_batch_size, T)
+    assert T >= B
+    
+    x = torch.zeros(B, T, dtype=torch.long)
+    x = x + _tokenizer().pad_token_id
+    for i in range(0, B):
+        x[i, B-i-1:] = encoded[:T-B+i+1]
+    return x
+    
 # e.g., dataset = load_dataset('the_pile', 'all', split='train', streaming=True)
 def load_dataset(name, config, split='train', streaming=True, shuffle=True):
     ds = datasets.load_dataset(name, config, split=split, streaming=streaming)
@@ -35,8 +48,11 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True):
             shuf = ds.shuffle()
     def encode_example(item):
         item['encoded'] = encode(item['text'])
+        item['batchened'] = embatch(item['encoded'])
         return item
-    return shuf.map(encode_example)
+    enc = shuf.map(encode_example)
+    return enc
+    #  .map(embatchen)
 
 class TextDataModule(pl.LightningDataModule):
     def __init__(self, dataset_name, dataset_cfg, streaming=False, batch_size=20, num_workers=20):
@@ -61,14 +77,18 @@ class TextDataModule(pl.LightningDataModule):
         return self.val_data_loader
     
     def transfer_batch_to_device(self, batch, device: torch.device, dataloader_idx: int):
+        if 'batchened' in batch:
+            b = batch['batchened']
+            if isinstance(b, list):
+                # import pdb; pdb.set_trace()
+                return torch.tensor(b, dtype=torch.long).to(device)
         if 'encoded' in batch:
             t = batch['encoded']
             if isinstance(t, list):
                 # Hmm, list batch? Concatenate it.
-                # import pdb; pdb.set_trace()
                 t = torch.tensor(t, dtype=torch.long)
             # Unary batch. Stick a dummy batch dimension on it.
-            t = t.to(device)[None, :]
+            return t.to(device)[None, :]
         else:
             # Hmm, what in blazes is this?
             import pdb; pdb.set_trace()

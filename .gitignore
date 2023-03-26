@@ -4,3 +4,6 @@ __pycache__/*
 .venv/*
 .ipynb_checkpoints/*
 lightning_logs/*
+model.ckpt
+val_ckpts/*
+interesting_checkpoints/*

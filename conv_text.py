@@ -61,39 +61,29 @@ class ReConvText(pl.LightningModule):
         assert x.shape == (B, self.fc_dim)
         return self.head(x)
     
-    def training_step_one(self, x, y):
-        return F.cross_entropy(self(x), y)
-    
     def _shared_eval(self, batch, batch_idx, prefix):
-        x = batch
-        y = batch
-        B, T = x.shape
-        assert y.shape == (B, T)
-        loss = 0.0
-        max_samples=100
-
-        if True:
-            n = 0
-            if T > max_samples:
-                for i in range(0, max_samples):
-                    i = torch.randint(low=1, high=T-1, size=()).item()
-                    n  += 1
-                    loss += self.training_step_one(x[:, :i], y[:, i])
-            else:
-                for i in range(1, T):
-                    n += 1
-                    loss += self.training_step_one(x[:, :i-1], y[:, i-1])
-            self.log(prefix + '_loss', loss/n)
-            self.log('length', 1.0 * T)
-            self.log('2ndchar', 1.0 * y[0, 1])
-        else:
-            import pdb; pdb.set_trace()
-            loss = self.training_step_one(x[:, :T-1], y[:, T-1])
-            print(loss)
-            self.log(prefix + '_loss', loss)
+        B, T = batch.shape
+        x = batch[:, :-1]
+        y = batch[:, -1]
+        assert y.shape == (B,)
+        assert x.shape == (B, T - 1)
+        y_hat = self(x)
+        assert y_hat.shape == (B, self.hparams.vocab_size)
+        loss = F.cross_entropy(y_hat, y)
+        self.log(prefix + '_loss', loss)
+        self.log('length', 1.0 * T)
         return loss
     
     def training_step(self, batch, batch_idx):
+        B, T = None, None
+        if len(batch.shape) == 2:
+            B, T = batch.shape
+        else:
+            B, T = (1, batch.shape[0])
+        if T == 2:
+            # Nothing to learn here: START/END.
+            z = torch.ones(1, requires_grad=True)
+            return F.cross_entropy(z, z)
         return self._shared_eval(batch, batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
