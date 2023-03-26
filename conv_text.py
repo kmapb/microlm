@@ -81,7 +81,8 @@ class ReConvText(pl.LightningModule):
             B, T = (1, batch.shape[0])
         if T == 2:
             # Nothing to learn here: START/END.
-            return torch.tensor(0, dtype=torch.float32, device=self.device)
+            z = torch.ones(1, requires_grad=True)
+            return F.cross_entropy(z, z)
         return self._shared_eval(batch, batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
