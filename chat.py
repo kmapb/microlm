@@ -1,3 +1,4 @@
+import sys
 import torch
 import pytorch_lightning as pl
 import conv_text as ct
@@ -11,6 +12,11 @@ def chat(mdl):
         print(td.decode(toks))
 
 if __name__ == "__main__":
-    mdl = ct.ReConvText.load_from_checkpoint('model.ckpt').to(dev())
+    mdl = 'model.ckpt'
+    if len(sys.argv) > 1:
+        mdl = sys.argv[1]
+    print("loading {} ...".format(mdl),)
+    mdl = ct.ReConvText.load_from_checkpoint(mdl).to(dev())
+    print("done")
     chat(mdl)
 

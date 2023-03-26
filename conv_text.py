@@ -93,3 +93,18 @@ class ReConvText(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
+
+def generate(model, idx=None, max_new_tokens=100):    
+    if idx == None:
+        idx = torch.zeros( (1, 1), dtype=torch.long ).to(dev())
+    idx = idx.to(dev())
+    assert(idx.dim() == 2)
+    # Accumulate predicted tokens here. XXX: could just chop off tail of idx instead
+    preds = torch.zeros(idx.shape[0], 0).to(dev())
+
+    for _ in range(max_new_tokens):
+        logits = model(idx)
+        probs = F.softmax(logits, dim=-1)
+        pred_y = torch.multinomial(probs, 1)
+        preds = torch.cat( (preds, pred_y), 1)
+    return preds[0]
