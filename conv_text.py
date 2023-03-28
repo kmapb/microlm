@@ -16,10 +16,10 @@ class FilterBank(nn.Module):
         
         self.f = nn.Sequential(
           nn.Conv1d(channels_in, channels_out, filter_depth, padding='same', padding_mode='replicate'),
-          nn.LocalResponseNorm(3),
+          # nn.LocalResponseNorm(3),
           nn.MaxPool1d(2),
-          nn.BatchNorm1d(channels_out),
-          nn.ReLU())
+          # nn.BatchNorm1d(channels_out),
+          nn.LeakyReLU())
 
     def input_size(self, input_length):
         return (self.channels_in, input_length)
@@ -38,13 +38,16 @@ class ReConvText(pl.LightningModule):
 
         self.dim = dim
         self.fc_dim = fc_dim
-        self.token_embedding_table = nn.Embedding(vocab_size, dim)
+        self.token_embedding_table = nn.Embedding(vocab_size, dim,
+                                                  scale_grad_by_freq=True,
+                                                  max_norm=0.2)
         self.filter_bank = FilterBank(dim, dim, filter_width)
         self.head = nn.Sequential(
-            nn.LayerNorm(fc_dim, eps=1e-6),
+            # nn.LayerNorm(fc_dim, eps=1e-6),
             nn.Linear(fc_dim, fc_dim),
-            nn.ReLU(),
-            nn.LayerNorm(fc_dim, eps=1e-6),
+            nn.LeakyReLU(),
+            # nn.Dropout(),
+            # nn.LayerNorm(fc_dim, eps=1e-6),
             nn.Linear(fc_dim, vocab_size),
         )
 
@@ -74,15 +77,16 @@ class ReConvText(pl.LightningModule):
         return loss
     
     def training_step(self, batch, batch_idx):
-        B, T = None, None
-        if len(batch.shape) == 2:
-            B, T = batch.shape
-        else:
-            B, T = (1, batch.shape[0])
-        if T == 2:
-            # Nothing to learn here: START/END.
-            z = torch.ones(1, requires_grad=True)
-            return F.cross_entropy(z, z)
+        if False:
+            B, T = None, None
+            if len(batch.shape) == 2:
+                B, T = batch.shape
+            else:
+                B, T = (1, batch.shape[0])
+            if T == 2:
+                # Nothing to learn here: START/END.
+                z = torch.ones(1, requires_grad=True)
+                return F.cross_entropy(z, z)
         return self._shared_eval(batch, batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
@@ -92,7 +96,7 @@ class ReConvText(pl.LightningModule):
         return self._shared_eval(batch, batch_idx, 'test')
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
+        return torch.optim.Adam(self.parameters(), lr=1e-5)
 
 def generate(model, idx=None, max_new_tokens=100):    
     if idx == None:

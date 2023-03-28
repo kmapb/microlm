@@ -82,7 +82,7 @@ class TextDataModule(pl.LightningDataModule):
             if isinstance(b, list):
                 # import pdb; pdb.set_trace()
                 return torch.tensor(b, dtype=torch.long).to(device)
-        if 'encoded' in batch:
+        if False and 'encoded' in batch:
             t = batch['encoded']
             if isinstance(t, list):
                 # Hmm, list batch? Concatenate it.

@@ -14,7 +14,7 @@ if __name__ == "__main__":
         # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1',
         'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
         'fname' : 'model-conv-text',
-        'embed_width': 2048,
+        'embed_width': 128,
         'filter_height': 5,
     }
     
@@ -45,7 +45,10 @@ if __name__ == "__main__":
                          devices='auto',
                          max_time={'hours': 48},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=0.25,
+                         val_check_interval=0.05,
+                         #log_every_n_steps=1,
+                         #overfit_batches=1000,
+                         max_epochs=2,
                          )
 
 
