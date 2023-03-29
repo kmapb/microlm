@@ -50,7 +50,7 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True):
         item['encoded'] = encode(item['text'])
         item['batchened'] = embatch(item['encoded'])
         return item
-    enc = shuf.map(encode_example)
+    enc = shuf.map(encode_example, num_proc=20)
     return enc
     #  .map(embatchen)
 
@@ -82,18 +82,10 @@ class TextDataModule(pl.LightningDataModule):
             if isinstance(b, list):
                 # import pdb; pdb.set_trace()
                 return torch.tensor(b, dtype=torch.long).to(device)
-        if False and 'encoded' in batch:
-            t = batch['encoded']
-            if isinstance(t, list):
-                # Hmm, list batch? Concatenate it.
-                t = torch.tensor(t, dtype=torch.long)
-            # Unary batch. Stick a dummy batch dimension on it.
-            return t.to(device)[None, :]
         else:
             # Hmm, what in blazes is this?
             import pdb; pdb.set_trace()
-            pass
-        return t
+            assert false
     
 def epoch_gen(idata, batch_size, example_length, max_samples=None):
     num_samples = 0

@@ -9,12 +9,12 @@ if __name__ == "__main__":
     import sys
     CFG= {
         'model': 'conv_text',
-        # 'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
+        'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
         # 'dataset': 'the_pile', 'dataset_cfg': 'all',
         # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1',
-        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
+        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
         'fname' : 'model-conv-text',
-        'embed_width': 128,
+        'embed_width': 384,
         'filter_height': 5,
     }
     
@@ -38,7 +38,7 @@ if __name__ == "__main__":
         monitor="val_loss",
         mode="min",
         dirpath="./val_ckpts",
-        filename="train-ckpt-{epoch:02d}-{val_loss:.2f}",
+        filename="ckpt-{}-{epoch:02d}-{val_loss:.2f}".format(CFG['dataset']),
     )
 
     trainer = pl.Trainer(accelerator='auto',
