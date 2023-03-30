@@ -9,12 +9,12 @@ if __name__ == "__main__":
     import sys
     CFG= {
         'model': 'conv_text',
-        'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
+        # 'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
         # 'dataset': 'the_pile', 'dataset_cfg': 'all',
-        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1',
+        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
         # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
         'fname' : 'model-conv-text',
-        'embed_width': 384,
+        'embed_width': 100,
         'filter_height': 5,
     }
     
@@ -31,14 +31,13 @@ if __name__ == "__main__":
                        CFG['context_width'])
     
     pl.seed_everything(71177)
-    dm = text_data.TextDataModule(CFG['dataset'], CFG['dataset_cfg'], streaming=False)
     # saves top-K checkpoints based on "val_loss" metric
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         save_top_k=10,
         monitor="val_loss",
         mode="min",
         dirpath="./val_ckpts",
-        filename="ckpt-{}-{epoch:02d}-{val_loss:.2f}".format(CFG['dataset']),
+        filename="ckpt-{epoch:02d}-{val_loss:.2f}",
     )
 
     trainer = pl.Trainer(accelerator='auto',
@@ -51,6 +50,7 @@ if __name__ == "__main__":
                          max_epochs=2,
                          )
 
+    dm = text_data.TextDataModule(CFG['dataset'], CFG['dataset_cfg'], streaming=False)
 
     trainer.fit(model, dm)
     trainer.save_checkpoint('model.ckpt')

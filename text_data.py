@@ -85,7 +85,7 @@ class TextDataModule(pl.LightningDataModule):
         else:
             # Hmm, what in blazes is this?
             import pdb; pdb.set_trace()
-            assert false
+            assert False
     
 def epoch_gen(idata, batch_size, example_length, max_samples=None):
     num_samples = 0
