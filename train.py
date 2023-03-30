@@ -11,10 +11,10 @@ if __name__ == "__main__":
         'model': 'conv_text',
         # 'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
         # 'dataset': 'the_pile', 'dataset_cfg': 'all',
-        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
-        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
+        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
+        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
         'fname' : 'model-conv-text',
-        'embed_width': 100,
+        'embed_width': 512,
         'filter_height': 5,
     }
     
