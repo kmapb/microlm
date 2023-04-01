@@ -4,6 +4,22 @@ from torch.nn import functional as F
 import pytorch_lightning as pl
 from util import dev
 
+class TimeContract(nn.Module):
+    def __init__(self, channels_in, contraction, filter_depth):
+        super(TimeContract, self).__init__()
+        self.channels_in = channels_in
+        self.filter_depth = filter_depth
+        
+        # B,C,T -> B,C,T/2
+        self.f = nn.Sequential(
+            nn.Conv1d(channels_in, channels_in, filter_depth, padding='same', padding_mode='replicate'),
+            nn.LeakyReLU(),
+            nn.MaxPool1d(contraction),
+        )
+
+    def forward(self, x):
+        return self.f(x)
+
 class FilterBank(nn.Module):
     def __init__(self,
                  channels_in,
@@ -15,13 +31,15 @@ class FilterBank(nn.Module):
         self.filter_depth = filter_depth
         
         self.f = nn.Sequential(
-          nn.Conv1d(channels_in, channels_out, filter_depth, padding='same', padding_mode='replicate'),
-          # nn.LocalResponseNorm(3),
-          # nn.BatchNorm1d(channels_out),
-          nn.LeakyReLU(),
-          nn.Conv1d(channels_out, channels_out, filter_depth, padding='same', padding_mode='replicate'),
-          nn.MaxPool1d(2),
-          nn.LeakyReLU())
+            nn.Conv1d(channels_in, channels_out, filter_depth, padding='same', padding_mode='replicate'),
+            # nn.LocalResponseNorm(3),
+            # nn.BatchNorm1d(channels_out),
+            nn.LeakyReLU(),
+            TimeContract(channels_out, 2, filter_depth),
+            # nn.Conv1d(channels_out, channels_out, filter_depth, padding='same', padding_mode='replicate'),
+            # nn.LeakyReLU(),
+            # nn.MaxPool1d(2),
+        )
                   
     def input_size(self, input_length):
         return (self.channels_in, input_length)
@@ -45,11 +63,11 @@ class ReConvText(pl.LightningModule):
                                                   max_norm=0.2)
         self.filter_bank = FilterBank(dim, dim, filter_width)
         self.head = nn.Sequential(
-            # nn.LayerNorm(fc_dim, eps=1e-6),
+            # nn.LayerNorm(fc_dim),
             nn.Linear(fc_dim, fc_dim),
             nn.LeakyReLU(),
             # nn.Dropout(),
-            # nn.LayerNorm(fc_dim, eps=1e-6),
+            # nn.LayerNorm(fc_dim),
             nn.Linear(fc_dim, vocab_size),
             nn.LeakyReLU(),
         )

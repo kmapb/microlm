@@ -44,10 +44,11 @@ if __name__ == "__main__":
                          devices='auto',
                          max_time={'hours': 48},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=0.05,
-                         #log_every_n_steps=1,
-                         #overfit_batches=1000,
-                         max_epochs=2,
+                         val_check_interval=0.01,
+                         #val_check_interval=0.25,
+                         log_every_n_steps=100,
+                         # overfit_batches=1000,
+                         max_epochs=32,
                          )
 
     dm = text_data.TextDataModule(CFG['dataset'], CFG['dataset_cfg'], streaming=False)

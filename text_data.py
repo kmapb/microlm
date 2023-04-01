@@ -24,7 +24,7 @@ def encode(s, add_special_tokens=True):
 def decode(t):
     return _tokenizer().decode(t)
 
-def embatch(encoded, max_batch_size=19):
+def embatch(encoded, max_batch_size=128):
     assert len(encoded.shape) == 1
     # Shorten batches if they're too long
     T = encoded.shape[0]
