@@ -38,8 +38,8 @@ def embatch(encoded, max_batch_size=128):
     return x
     
 # e.g., dataset = load_dataset('the_pile', 'all', split='train', streaming=True)
-def load_dataset(name, config, split='train', streaming=True, shuffle=True):
-    ds = datasets.load_dataset(name, config, split=split, streaming=streaming)
+def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_proc=20):
+    ds = datasets.load_dataset(name, config, split=split, streaming=streaming, num_proc=num_proc)
     shuf = ds
     if shuffle:
         if streaming:
@@ -50,21 +50,25 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True):
         item['encoded'] = encode(item['text'])
         item['batchened'] = embatch(item['encoded'])
         return item
-    enc = shuf.map(encode_example, num_proc=20)
+    enc = shuf.map(encode_example, num_proc=num_proc)
     return enc
-    #  .map(embatchen)
 
 class TextDataModule(pl.LightningDataModule):
-    def __init__(self, dataset_name, dataset_cfg, streaming=False, batch_size=20, num_workers=20):
+    def __init__(self, dataset_name, dataset_cfg, streaming=False, pct=None, batch_size=20, num_workers=20):
         super().__init__()
         self.dataset_name = dataset_name
         self.dataset_cfg = dataset_cfg
         self.batch_size = batch_size
         self.num_workers = num_workers
         super().save_hyperparameters()
-        self.train_data_loader = load_dataset(dataset_name, dataset_cfg, split='train', streaming=streaming)
-        self.test_data_loader = load_dataset(dataset_name, dataset_cfg, split='test', streaming=streaming)
-        self.val_data_loader = load_dataset(dataset_name, dataset_cfg, split='validation', streaming=streaming)
+        pct = 1.0 if pct is None else pct
+        def split_name(base):
+            return "{}[{}%]".format(base, int(pct * 100))
+        def ds(split):
+            return load_dataset(dataset_name, dataset_cfg, split=split_name(split), streaming=streaming)
+        self.train_data_loader = ds('train')
+        self.test_data_loader = ds('test')
+        self.val_data_loader = ds('validation')
 
     def setup(self, stage=None):
         pass
