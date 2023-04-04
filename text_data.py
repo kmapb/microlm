@@ -17,10 +17,8 @@ def vocabulary_size():
     return len(_tokenizer().vocab)
 
 def encode(s, add_special_tokens=True):
-    import pdb; pdb.set_trace()
-    return torch.tensor(
-        _tokenizer()(s, add_special_tokens=add_special_tokens)['input_ids'],
-        dtype=torch.long)
+    # import pdb; pdb.set_trace()
+    return _tokenizer()(s['text'], add_special_tokens=add_special_tokens)
 
 def decode(t):
     return _tokenizer().decode(t)
@@ -47,6 +45,8 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_
             shuf = ds.shuffle(buffer_size=8192)
         else:
             shuf = ds.shuffle()
+    return shuf
+# Do encoding/batching stuff elsewhere
     def encode_example(item):
         item['encoded'] = encode(item['text'])
         item['batchened'] = embatch(item['encoded'])
@@ -138,11 +138,12 @@ if __name__ == "__main__":
 
 
 class BasicDataModule(pl.LightningDataModule):
-    def __init__(self, dataset_name, dataset_cfg, pct=1.0, batch_size=128):
+    def __init__(self, dataset_name, dataset_cfg, pct=1.0, batch_size=128, num_workers=20):
         super().__init__()
         self.dataset_name = dataset_name
         self.tokenizer = _tokenizer()
         self.batch_size = batch_size
+        self.num_workers = num_workers
         def split_name(base):
             # return base
             return "{}[:{}%]".format(base, int(pct * 100))
@@ -152,22 +153,40 @@ class BasicDataModule(pl.LightningDataModule):
         self.test_dataset = ds('test')
         self.val_dataset = ds('validation')
 
+    @staticmethod
+    def collate_batch(batch):
+        import pdb; pdb.set_trace()
+        from torch.nn.utils.rnn import pad_sequence
+        max = 0
+        out_batch = []
+        for item in batch:
+            t = item['input_ids']
+            if t.shape[0] > max:
+                max = t.shape[0]
+            out_batch.append(t)
+        return pad_sequence(out_batch, padding_value=max) 
 
+    def data_loader(self, ds):
+        return torch.utils.data.DataLoader(ds, batch_size=self.batch_size, collate_fn=self.collate_batch
+                                           #, num_workers=self.num_workers
+                                           )
+    
     def setup(self, stage=None):
+        cols = ['input_ids', 'token_type_ids', 'attention_mask']
         print("Tokenizing...")
         self.train_dataset = self.train_dataset.map(encode, batched=True)
-        self.train_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.train_dataset.set_format(type="torch", columns=cols)
         self.val_dataset = self.val_dataset.map(encode, batched=True)
-        self.val_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.val_dataset.set_format(type="torch", columns=cols)
         self.test_dataset = self.test_dataset.map(encode, batched=True)
-        self.test_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.test_dataset.set_format(type="torch", columns=cols)
         print("Done tokenizing.")
 
     def train_dataloader(self):
-        return torch.DataLoader(self.train_dataset, batch_size=self.batch_size)
-    
+        return self.data_loader(self.train_dataset)
+        
     def val_dataloader(self):
-        return torch.DataLoader(self.val_dataset, batch_size=self.batch_size)
-    
+        return self.data_loader(self.val_dataset)
+ 
     def test_dataloader(self):
-        return torch.DataLoader(self.test_dataset, batch_size=self.batch_size)
+        return self.data_loader(self.test_dataset)
