@@ -18,7 +18,7 @@ if __name__ == "__main__":
         'fname' : 'model-conv-text',
         'embed_width': 512,
         'filter_height': 5,
-        'batch_size': 4,
+        'batch_size': 1,
     }
     
     # Compute the width of the first fully-connected layer; needs to be
