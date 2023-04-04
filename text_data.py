@@ -63,7 +63,8 @@ class TextDataModule(pl.LightningDataModule):
         super().save_hyperparameters()
         pct = 1.0 if pct is None else pct
         def split_name(base):
-            return "{}[{}%]".format(base, int(pct * 100))
+            # return base
+            return "{}[:{}%]".format(base, int(pct * 100))
         def ds(split):
             return load_dataset(dataset_name, dataset_cfg, split=split_name(split), streaming=streaming)
         self.train_data_loader = ds('train')
