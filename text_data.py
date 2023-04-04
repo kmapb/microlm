@@ -17,14 +17,15 @@ def vocabulary_size():
     return len(_tokenizer().vocab)
 
 def encode(s, add_special_tokens=True):
-  return torch.tensor(
-      _tokenizer()(s, add_special_tokens=add_special_tokens)['input_ids'],
-      dtype=torch.long)
+    import pdb; pdb.set_trace()
+    return torch.tensor(
+        _tokenizer()(s, add_special_tokens=add_special_tokens)['input_ids'],
+        dtype=torch.long)
 
 def decode(t):
     return _tokenizer().decode(t)
 
-def embatch(encoded, max_batch_size=128):
+def embatch(encoded, max_batch_size=16):
     assert len(encoded.shape) == 1
     # Shorten batches if they're too long
     T = encoded.shape[0]
@@ -38,7 +39,7 @@ def embatch(encoded, max_batch_size=128):
     return x
     
 # e.g., dataset = load_dataset('the_pile', 'all', split='train', streaming=True)
-def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_proc=20):
+def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_proc=16):
     ds = datasets.load_dataset(name, config, split=split, streaming=streaming, num_proc=num_proc)
     shuf = ds
     if shuffle:
@@ -54,7 +55,7 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_
     return enc
 
 class TextDataModule(pl.LightningDataModule):
-    def __init__(self, dataset_name, dataset_cfg, streaming=False, pct=None, batch_size=20, num_workers=20):
+    def __init__(self, dataset_name, dataset_cfg, streaming=False, pct=None, batch_size=20, num_workers=16):
         super().__init__()
         self.dataset_name = dataset_name
         self.dataset_cfg = dataset_cfg
@@ -67,19 +68,19 @@ class TextDataModule(pl.LightningDataModule):
             return "{}[:{}%]".format(base, int(pct * 100))
         def ds(split):
             return load_dataset(dataset_name, dataset_cfg, split=split_name(split), streaming=streaming)
-        self.train_data_loader = ds('train')
-        self.test_data_loader = ds('test')
-        self.val_data_loader = ds('validation')
+        self.train_dataset = ds('train')
+        self.test_dataset = ds('test')
+        self.val_dataset = ds('validation')
 
     def setup(self, stage=None):
         pass
     
     def train_dataloader(self):
-        return self.train_data_loader
+        return torch.DataLoader(self.train_dataset)
     def test_dataloader(self):
-        return self.test_data_loader
+        return torch.DataLoader(self.test_dataset)
     def val_dataloader(self):
-        return self.val_data_loader
+        return torch.DataLoader(self.val_dataset)
     
     def transfer_batch_to_device(self, batch, device: torch.device, dataloader_idx: int):
         if 'batchened' in batch:
@@ -135,3 +136,38 @@ if __name__ == "__main__":
         print(y)
         break
 
+
+class BasicDataModule(pl.LightningDataModule):
+    def __init__(self, dataset_name, dataset_cfg, pct=1.0, batch_size=128):
+        super().__init__()
+        self.dataset_name = dataset_name
+        self.tokenizer = _tokenizer()
+        self.batch_size = batch_size
+        def split_name(base):
+            # return base
+            return "{}[:{}%]".format(base, int(pct * 100))
+        def ds(split):
+            return load_dataset(dataset_name, dataset_cfg, split=split_name(split), streaming=False)
+        self.train_dataset = ds('train')
+        self.test_dataset = ds('test')
+        self.val_dataset = ds('validation')
+
+
+    def setup(self, stage=None):
+        print("Tokenizing...")
+        self.train_dataset = self.train_dataset.map(encode, batched=True)
+        self.train_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.val_dataset = self.val_dataset.map(encode, batched=True)
+        self.val_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        self.test_dataset = self.test_dataset.map(encode, batched=True)
+        self.test_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        print("Done tokenizing.")
+
+    def train_dataloader(self):
+        return torch.DataLoader(self.train_dataset, batch_size=self.batch_size)
+    
+    def val_dataloader(self):
+        return torch.DataLoader(self.val_dataset, batch_size=self.batch_size)
+    
+    def test_dataloader(self):
+        return torch.DataLoader(self.test_dataset, batch_size=self.batch_size)

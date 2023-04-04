@@ -11,12 +11,14 @@ if __name__ == "__main__":
         'model': 'conv_text',
         # 'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
         # 'dataset': 'the_pile', 'dataset_cfg': 'all',
-        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
+        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
         # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
-        'dataset': 'c4', 'dataset_cfg': 'en', 'dataset_pct': 0.1,
+        # 'dataset': 'c4', 'dataset_cfg': 'en',
+        'dataset_pct': 0.1,
         'fname' : 'model-conv-text',
         'embed_width': 512,
         'filter_height': 5,
+        'batch_size': 20,
     }
     
     # Compute the width of the first fully-connected layer; needs to be
@@ -52,8 +54,8 @@ if __name__ == "__main__":
                          max_epochs=32,
                          )
 
-    dm = text_data.TextDataModule(CFG['dataset'], CFG['dataset_cfg'], streaming=False, pct=CFG['dataset_pct'])
-
+    # dm = text_data.TextDataModule(CFG['dataset'], CFG['dataset_cfg'], streaming=False, pct=CFG['dataset_pct'])
+    dm = text_data.BasicDataModule(CFG['dataset'], CFG['dataset_cfg'], pct=CFG['dataset_pct'], batch_size=CFG['batch_size'])
     trainer.fit(model, dm)
     trainer.save_checkpoint('model.ckpt')
     trainer.test(model, dm)
