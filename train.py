@@ -3,35 +3,31 @@ import torch
 import pytorch_lightning as pl
 
 import text_data
-from conv_text import ReConvText
+# from conv_text import ReConvText
+from summ_net import SummNet
 
 if __name__ == "__main__":
     import sys
     CFG= {
         'model': 'conv_text',
-        # 'dataset': 'bookcorpus', 'dataset_cfg': 'plain_text',
+        'dataset': 'bookcorpus', 'dataset_cfg': None,
         # 'dataset': 'the_pile', 'dataset_cfg': 'all',
-        'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
+        # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-2-v1', # quick test
         # 'dataset': 'wikitext', 'dataset_cfg': 'wikitext-103-v1',
         # 'dataset': 'c4', 'dataset_cfg': 'en',
-        'dataset_pct': 0.1,
+        'dataset_pct': 1.0,
         'fname' : 'model-conv-text',
         'embed_width': 512,
-        'filter_height': 5,
-        'batch_size': 1,
+        'batch_size': 8,
     }
-    
-    # Compute the width of the first fully-connected layer; needs to be
-    # big enough to accept the output of the convolutional layer.
-    CFG['context_width'] = (CFG['filter_height'] + 1) * CFG['embed_width']
 
     # Allow the hardware to use mixed precision
     torch.set_float32_matmul_precision('medium')
 
-    model = ReConvText(text_data.vocabulary_size(),
-                       CFG['filter_height'],
-                       CFG['embed_width'],
-                       CFG['context_width'])
+    model = SummNet(text_data.vocabulary_size(),
+                    CFG['embed_width'],
+                    CFG['embed_width'],
+                    17)
     
     pl.seed_everything(71177)
     # saves top-K checkpoints based on "val_loss" metric

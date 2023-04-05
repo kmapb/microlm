@@ -1,7 +1,7 @@
 import torch
 import datasets
 import pytorch_lightning as pl
-from transformers import BertTokenizer
+from transformers import BertTokenizer, DataCollatorForLanguageModeling
 
 TOKENIZER=None
 def _tokenizer():
@@ -10,14 +10,13 @@ def _tokenizer():
             TOKENIZER = BertTokenizer.from_pretrained("bert-base-cased")
     return TOKENIZER
 
-def tokenize(text):
-    return _tokenizer()(text)['input_ids']
+def tokenize(text, add_special_tokens=True):
+    return _tokenizer()(text, add_special_tokens=add_special_tokens)['input_ids']
 
 def vocabulary_size():
     return len(_tokenizer().vocab)
 
 def encode(s, add_special_tokens=True):
-    # import pdb; pdb.set_trace()
     return _tokenizer()(s['text'], add_special_tokens=add_special_tokens)
 
 def decode(t):
@@ -144,18 +143,20 @@ class BasicDataModule(pl.LightningDataModule):
         self.tokenizer = _tokenizer()
         self.batch_size = batch_size
         self.num_workers = num_workers
-        def split_name(base):
-            # return base
-            return "{}[:{}%]".format(base, int(pct * 100))
         def ds(split):
-            return load_dataset(dataset_name, dataset_cfg, split=split_name(split), streaming=False)
+            return load_dataset(dataset_name, dataset_cfg, split=split, streaming=False)
         self.train_dataset = ds('train')
-        self.test_dataset = ds('test')
-        self.val_dataset = ds('validation')
+        try:
+            self.test_dataset = ds('test')
+            self.val_dataset = ds('validation')
+        except ValueError:
+            self.train_dataset = ds('train[0%:80%]')
+            self.test_dataset = ds('train[80%:90%]')
+            self.val_dataset = ds('train[90%:100%]')
 
     @staticmethod
     def collate_batch(batch):
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         from torch.nn.utils.rnn import pad_sequence
         max = 0
         out_batch = []
@@ -164,29 +165,39 @@ class BasicDataModule(pl.LightningDataModule):
             if t.shape[0] > max:
                 max = t.shape[0]
             out_batch.append(t)
-        return pad_sequence(out_batch, padding_value=max) 
+        out = pad_sequence(out_batch, batch_first=True, padding_value=max)
+        return out
 
     def data_loader(self, ds):
-        return torch.utils.data.DataLoader(ds, batch_size=self.batch_size, collate_fn=self.collate_batch
-                                           #, num_workers=self.num_workers
-                                           )
+        collator = DataCollatorForLanguageModeling(tokenizer=self.tokenizer, mlm=False)
+        return torch.utils.data.DataLoader(ds,
+                                           batch_size=self.batch_size,
+                                           collate_fn=collator,
+                                           num_workers=self.num_workers)
     
     def setup(self, stage=None):
         cols = ['input_ids', 'token_type_ids', 'attention_mask']
         print("Tokenizing...")
-        self.train_dataset = self.train_dataset.map(encode, batched=True)
+
+        self.train_dataset = self.train_dataset.map(encode, batched=True, num_proc=self.num_workers)
         self.train_dataset.set_format(type="torch", columns=cols)
-        self.val_dataset = self.val_dataset.map(encode, batched=True)
+        self.train_dataloader_ = self.data_loader(self.train_dataset)
+        
+        self.val_dataset = self.val_dataset.map(encode, batched=True, num_proc=self.num_workers)
         self.val_dataset.set_format(type="torch", columns=cols)
-        self.test_dataset = self.test_dataset.map(encode, batched=True)
+        self.val_dataloader_ = self.data_loader(self.val_dataset)
+        
+        self.test_dataset = self.test_dataset.map(encode, batched=True, num_proc=self.num_workers)
         self.test_dataset.set_format(type="torch", columns=cols)
+        self.test_dataloader_ = self.data_loader(self.test_dataset)
+        
         print("Done tokenizing.")
 
     def train_dataloader(self):
-        return self.data_loader(self.train_dataset)
+        return self.train_dataloader_
         
     def val_dataloader(self):
-        return self.data_loader(self.val_dataset)
+        return self.val_dataloader_
  
     def test_dataloader(self):
-        return self.data_loader(self.test_dataset)
+        return self.test_dataloader_

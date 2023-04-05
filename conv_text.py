@@ -85,17 +85,24 @@ class ReConvText(pl.LightningModule):
         return self.head(x)
     
     def _shared_eval(self, batch, batch_idx, prefix):
+        import pdb; pdb.set_trace()
         B, T = batch.shape
-        if True:
-            if T == 2:
+        assert B >= 1
+        assert T >= 1
+        if False:
+            if T <= 2:
                 # Nothing to learn here! Return zero loss.
                 z = torch.ones(1, requires_grad=True)
-                return F.cross_entropy(z, z)
+                loss = F.cross_entropy(z, z)
+                self.log(prefix + '_loss', loss)
+                return loss
         x = batch[:, :-1]
         y = batch[:, -1]
         assert y.shape == (B,)
         assert x.shape == (B, T - 1)
         y_hat = self(x)
+        
+        import pdb; pdb.set_trace()
         assert y_hat.shape == (B, self.hparams.vocab_size)
         loss = F.cross_entropy(y_hat, y)
         self.log(prefix + '_loss', loss)
