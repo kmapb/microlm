@@ -56,9 +56,7 @@ class SummNet(pl.LightningModule):
         self.dim = dim
         self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
-        self.token_embedding_table = nn.Embedding(vocab_size, dim,
-                                                  scale_grad_by_freq=True,
-                                                  max_norm=0.2)
+        self.token_embedding_table = nn.Embedding(vocab_size, dim)
         self.filter_bank = DilationNet(dim, height)
         self.head = nn.Sequential(
             nn.Linear(dim, fc_dim),

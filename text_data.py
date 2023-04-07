@@ -1,7 +1,7 @@
 import torch
 import datasets
 import pytorch_lightning as pl
-from transformers import BertTokenizer, DataCollatorForLanguageModeling
+from transformers import BertTokenizer, DataCollatorForLanguageModeling, DataCollatorWithPadding
 
 TOKENIZER=None
 def _tokenizer():
@@ -169,7 +169,9 @@ class BasicDataModule(pl.LightningDataModule):
         return out
 
     def data_loader(self, ds):
-        collator = DataCollatorForLanguageModeling(tokenizer=self.tokenizer, mlm=False)
+        # collator = DataCollatorForLanguageModeling(tokenizer=self.tokenizer, mlm=False)
+        # XXX: make max_length paramterizable
+        collator = DataCollatorWithPadding(tokenizer=self.tokenizer, padding='longest', max_length=8192)
         return torch.utils.data.DataLoader(ds,
                                            batch_size=self.batch_size,
                                            collate_fn=collator,

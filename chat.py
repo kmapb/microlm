@@ -1,5 +1,6 @@
 import sys
 import torch
+import torch.nn.functional as F
 import pytorch_lightning as pl
 import summ_net as sn
 import text_data as td
@@ -10,11 +11,42 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 
 def my_encode(s):
     tk = td.tokenize(s, add_special_tokens=False)
-    return torch.tensor(tk)
+    return torch.tensor(tk).to(dev())
 
-def respond(mdl, prompt):
+def score(mdl, idx, sequence):
+    logprobsum = 0.0
+    for tok in sequence[idx.shape[1]:]:
+        logits = mdl(idx)
+        probs = F.softmax(logits, dim=-1)
+        logprob = torch.log(probs[0, -1, tok])
+        logprobsum += logprob
+        idx = torch.cat( (idx, torch.tensor([[tok]]).to(dev())), dim=1)
+    return logprobsum
+
+def beamsearch(mdl, idx, beam_size=5, max_new_tokens=100):
+    candidates = [ (0.0, idx) ]
+    for tok in range(max_new_tokens):
+        new_candidates = []
+        for score, idx in candidates:
+            logits = mdl(idx)
+            probs = F.softmax(logits, dim=-1)
+            for i in range(beam_size):
+                logprob = torch.log(probs[0, -1, i])
+                new_candidates.append( (score + logprob, torch.cat( (idx, torch.tensor([[i]]).to(dev())), dim=1)) )
+        candidates = sorted(new_candidates, key=lambda x: x[0], reverse=True)[:beam_size]
+    return candidates
+
+def beamsearch_respond(mdl, prompt, beam_size=5, max_new_tokens=100):
+    idx =  torch.unsqueeze(my_encode(prompt), 0).to(dev())
+    candidates = beamsearch(mdl, idx, beam_size, max_new_tokens)
+    score,seq = candidates[0]
+    return td.decode(seq)
+
+def greedy_respond(mdl, prompt):
     idx = torch.unsqueeze(my_encode(prompt), 0).to(dev())
     toks = sn.generate(mdl, idx).to(dev())
+    s = score(mdl, idx, toks)
+    print("Score: {}".format(s))
     return td.decode(toks)
 
     d = { 'input_ids': idx, 'attention_mask': torch.ones_like(idx)}
@@ -46,7 +78,9 @@ class Generable(transformers.GenerationMixin, sn.SummNet):
 
 def chat(mdl):
     while True:
-        print(respond(mdl, input('! ')))
+        prompt = input('> ')
+        for i in range(3):
+            print(beamsearch_respond(mdl, prompt))
 
 if __name__ == "__main__":
     mdl = 'model.ckpt'

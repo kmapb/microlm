@@ -18,7 +18,7 @@ if __name__ == "__main__":
         'dataset_pct': 1.0,
         'fname' : 'model-conv-text',
         'embed_width': 512,
-        'batch_size': 8,
+        'batch_size': 4,
     }
 
     # Allow the hardware to use mixed precision
@@ -43,9 +43,10 @@ if __name__ == "__main__":
                          devices='auto',
                          max_time={'hours': 48},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=0.01,
+                         val_check_interval=0.001,
                          #val_check_interval=0.25,
                          log_every_n_steps=100,
+                         limit_val_batches=0.001,
                          # overfit_batches=1000,
                          max_epochs=32,
                          )
