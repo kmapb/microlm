@@ -36,10 +36,19 @@ class CausalConv1d(nn.Module):
         assert conv1d_out.shape == (B, self.out_channels, T)
         return F.leaky_relu(conv1d_out)
 
+class Residual(nn.Module):
+    def __init__(self, submodule):
+        super(Residual, self).__init__()
+        self.submodule = submodule
+        
+    def forward(self, x):
+        return x + self.submodule(x)
+
+
 class DilationNet(nn.Module):
     def __init__(self, channels, height):
         super(DilationNet, self).__init__()
-        self.layers = [ CausalConv1d(2, channels, channels, dilation=2 ** h) for h in range(height) ]
+        self.layers = [ Residual(CausalConv1d(2, channels, channels, dilation=2 ** h)) for h in range(height) ]
         self.net = nn.Sequential(*self.layers)
         self.height = height
     
@@ -49,7 +58,7 @@ class DilationNet(nn.Module):
     def convs(self):
         for c in self.layers:
             yield c
-    
+
 class SummNet(pl.LightningModule):
     def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=16):
         super(SummNet, self).__init__()
