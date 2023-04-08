@@ -23,24 +23,46 @@ def score(mdl, idx, sequence):
         idx = torch.cat( (idx, torch.tensor([[tok]]).to(dev())), dim=1)
     return logprobsum
 
-def beamsearch(mdl, idx, beam_size=5, max_new_tokens=100):
-    candidates = [ (0.0, idx) ]
+def beamsearch(mdl, idx, beam_size=15, max_new_tokens=100, temperature=2.0):
+    candidates = [ (0.0, False, idx) ]
+
+    def dump_cands():
+        i = 0
+        print("------------------")
+        for score, terminated, idx in candidates:
+            print("{} Score: {}  Text: {}".format(i, score, td.decode(idx[0])))
+            i += 1
+        print("------------------")
+
     for tok in range(max_new_tokens):
-        new_candidates = []
-        for score, idx in candidates:
-            logits = mdl(idx)
+        new_candidates = [] # Keep old ones in the running
+        # XXX: vectorie this!
+        for score, terminated, idx in candidates:
+            if terminated:
+                new_candidates.append( (score, terminated, idx) )
+                continue
+            # logits ~ B,T,V
+            logits = mdl(idx)[0, -1, :] / temperature
             probs = F.softmax(logits, dim=-1)
-            for i in range(beam_size):
-                logprob = torch.log(probs[0, -1, i])
-                new_candidates.append( (score + logprob, torch.cat( (idx, torch.tensor([[i]]).to(dev())), dim=1)) )
+            preds = torch.multinomial(probs, beam_size)
+            for i in preds:
+                logprob = torch.log(probs[i])
+                # Apply a length-normalization; this is a hack
+                new_score = (score * tok + logprob) / (tok + 1)                
+                new_candidates.append( (new_score,
+                                        i == td.sep_token_id(),
+                                        torch.cat( (idx, torch.tensor([[i]]).to(dev())), dim=1)) )
         candidates = sorted(new_candidates, key=lambda x: x[0], reverse=True)[:beam_size]
+        assert len(candidates) == beam_size
+        dump_cands()
     return candidates
 
-def beamsearch_respond(mdl, prompt, beam_size=5, max_new_tokens=100):
+def beamsearch_respond(mdl, prompt, beam_size=15, max_new_tokens=100):
     idx =  torch.unsqueeze(my_encode(prompt), 0).to(dev())
     candidates = beamsearch(mdl, idx, beam_size, max_new_tokens)
-    score,seq = candidates[0]
-    return td.decode(seq)
+    score,terminated,seq = candidates[0]
+    assert terminated
+    return td.decode(seq[0])
 
 def greedy_respond(mdl, prompt):
     idx = torch.unsqueeze(my_encode(prompt), 0).to(dev())
@@ -51,6 +73,12 @@ def greedy_respond(mdl, prompt):
 
     d = { 'input_ids': idx, 'attention_mask': torch.ones_like(idx)}
     toks = mdl.generate(idx, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True)
+
+def chat(mdl):
+    with torch.no_grad():
+        while True:
+            print(beamsearch_respond(mdl, input('> ')))
+
 
 class Generable(transformers.GenerationMixin, sn.SummNet):
     def __init__(self, *args, **kwargs):
@@ -76,11 +104,6 @@ class Generable(transformers.GenerationMixin, sn.SummNet):
         return logits
 
 
-def chat(mdl):
-    while True:
-        prompt = input('> ')
-        for i in range(3):
-            print(beamsearch_respond(mdl, prompt))
 
 if __name__ == "__main__":
     mdl = 'model.ckpt'

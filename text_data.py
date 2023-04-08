@@ -16,6 +16,9 @@ def tokenize(text, add_special_tokens=True):
 def vocabulary_size():
     return len(_tokenizer().vocab)
 
+def sep_token_id():
+    return _tokenizer().sep_token_id
+
 def encode(s, add_special_tokens=True):
     return _tokenizer()(s['text'], add_special_tokens=add_special_tokens)
 
