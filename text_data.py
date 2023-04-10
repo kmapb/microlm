@@ -124,8 +124,8 @@ def epoch_gen(idata, batch_size, example_length, max_samples=None):
       yield x, y
 
 def complete_prefix(m, init_str='Zounds! ', max_new_tokens=1024):
-  init_context = encode(init_str, add_special_tokens=False)
-  init_context = init_context[None, :]
+  init_context = encode(init_str, add_special_tokens=True) # Get [CLS]...[SEP]
+  init_context = init_context[None, :-1] # Remove [SEP], add a batch
   return decode(m.generate(idx = init_context, max_new_tokens=max_new_tokens))
 
 if __name__ == "__main__":
