@@ -22,7 +22,7 @@ def main(argv):
                         help='Maximum number of epochs to train')
     parser.add_argument('--checkpoint-restore', '-c', type=str, default=None,
                         help='Checkpoint to restore')
-    parser.add_argument('--embedding-width', type=int, default=512,
+    parser.add_argument('--embedding-width', type=int, default=1024,
                         help='Embedding width')
     parser.add_argument('--fc-width', type=int, default=512,
                         help='Classifier (FC) width')
@@ -30,7 +30,7 @@ def main(argv):
                         help='Batch size')
     parser.add_argument('--max-length', type=int, default=4096,
                         help='Maximum length of input')
-    parser.add_argument('--wavenet-height', type=int, default=17,
+    parser.add_argument('--wavenet-height', type=int, default=13,
                         help='Wavenet height')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')

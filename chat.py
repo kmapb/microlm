@@ -23,7 +23,7 @@ def score(mdl, idx, sequence):
         idx = torch.cat( (idx, torch.tensor([[tok]]).to(dev())), dim=1)
     return logprobsum
 
-def beamsearch(mdl, idx, beam_size=15, max_new_tokens=100, temperature=2.0):
+def beamsearch(mdl, idx, beam_size=15, max_new_tokens=100, temperature=1.0):
     candidates = [ (0.0, False, idx) ]
 
     def dump_cands():
