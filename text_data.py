@@ -140,8 +140,9 @@ if __name__ == "__main__":
 
 
 class BasicDataModule(pl.LightningDataModule):
-    def __init__(self, dataset_name, dataset_cfg, pct=1.0, batch_size=128, num_workers=20):
+    def __init__(self, dataset_name, dataset_cfg, max_length=4096, batch_size=128, num_workers=20):
         super().__init__()
+        self.max_length = max_length
         self.dataset_name = dataset_name
         self.tokenizer = _tokenizer()
         self.batch_size = batch_size
@@ -174,7 +175,8 @@ class BasicDataModule(pl.LightningDataModule):
     def data_loader(self, ds):
         # collator = DataCollatorForLanguageModeling(tokenizer=self.tokenizer, mlm=False)
         # XXX: make max_length paramterizable
-        collator = DataCollatorWithPadding(tokenizer=self.tokenizer, padding='longest', max_length=8192)
+        collator = DataCollatorWithPadding(tokenizer=self.tokenizer,
+                                           padding='longest', max_length=self.max_length)
         return torch.utils.data.DataLoader(ds,
                                            batch_size=self.batch_size,
                                            collate_fn=collator,

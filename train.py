@@ -16,8 +16,6 @@ def main(argv):
                         help='Name of Huggingface dataset')
     parser.add_argument('--dataset-cfg', type=str, default=None,
                         help='Config of Huggingface dataset')
-    parser.add_argument('--dataset-pct', type=float, default=1.0,
-                        help='Percentage of dataset to use')
     parser.add_argument('--max-hours', type=int, default=48,
                         help='Maximum number of hours to train')
     parser.add_argument('--max-epochs', type=int, default=2,
@@ -30,19 +28,23 @@ def main(argv):
                         help='Classifier (FC) width')
     parser.add_argument('--batch-size', type=int, default=4,
                         help='Batch size')
+    parser.add_argument('--max-length', type=int, default=4096,
+                        help='Maximum length of input')
     parser.add_argument('--wavenet-height', type=int, default=17,
                         help='Wavenet height')
+    parser.add_argument('--random-seed', type=int, default=22707,
+                        help='Random seed')
     args = parser.parse_args(argv)
     
     # dataset: 'bookcorpus'
-    # dataset: 'the_pile', dataset_cfg: 'all', dataset_pct: 0.1
+    # dataset: 'the_pile', dataset_cfg: 'all'
     # dataset: 'wikitext', dataset_cfg: 'wikitext-2-v1', # quick test
     # dataset: 'wikitext', dataset_cfg: 'wikitext-103-v1',
     # dataset: 'c4', 'dataset_cfg': 'en',
         
     # Allow the hardware to use mixed precision
     torch.set_float32_matmul_precision('medium')
-    pl.seed_everything(71177)
+    pl.seed_everything(args.random_seed)
     # saves top-K checkpoints based on "val_loss" metric
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         save_top_k=10,
@@ -72,7 +74,7 @@ def main(argv):
                          max_epochs=args.max_epochs,
                          )
 
-    dm = text_data.BasicDataModule(args.dataset, args.dataset_cfg, pct=args.dataset_pct,
+    dm = text_data.BasicDataModule(args.dataset, args.dataset_cfg, max_length=args.max_length,
                                    batch_size=args.batch_size)
     trainer.fit(model, dm)
     trainer.save_checkpoint('full-run.ckpt')
