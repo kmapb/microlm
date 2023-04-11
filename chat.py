@@ -106,6 +106,8 @@ class Generable(transformers.GenerationMixin, sn.SummNet):
 
 
 if __name__ == "__main__":
+    import os
+    os.putenv('TORCH_CPU_ONLY', '1')
     mdl = 'model.ckpt'
     if len(sys.argv) > 1:
         mdl = sys.argv[1]
