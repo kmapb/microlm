@@ -26,7 +26,7 @@ def main(argv):
                         help='Embedding width')
     parser.add_argument('--fc-width', type=int, default=512,
                         help='Classifier (FC) width')
-    parser.add_argument('--batch-size', type=int, default=4,
+    parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size')
     parser.add_argument('--max-length', type=int, default=4096,
                         help='Maximum length of input')

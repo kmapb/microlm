@@ -102,7 +102,7 @@ class SummNet(pl.LightningModule):
         y_hat = self(x)
         assert y_hat.shape == (B * (T - 1), self.hparams.vocab_size)
         loss = F.cross_entropy(y_hat, y.reshape(-1))
-        self.log(prefix + '_loss', loss)
+        self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
         return loss
     

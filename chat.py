@@ -61,7 +61,6 @@ def beamsearch_respond(mdl, prompt, beam_size=15, max_new_tokens=100):
     idx =  torch.unsqueeze(my_encode(prompt), 0).to(dev())
     candidates = beamsearch(mdl, idx, beam_size, max_new_tokens)
     score,terminated,seq = candidates[0]
-    assert terminated
     return td.decode(seq[0])
 
 def greedy_respond(mdl, prompt):

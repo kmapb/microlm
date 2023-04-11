@@ -10,8 +10,11 @@ def syn_data(B, T):
 def main(mdl):
     batchsz = 8
     optim = mdl.configure_optimizers()
+    torch.set_float32_matmul_precision('medium')
+    pl.seed_everything(71177)
+
     for i in range(5, 40):
-        inplen = int(1.5 ** i)
+        inplen = int(2** i)
         print("Trying {}".format(inplen))
         b = syn_data(batchsz, inplen)
         bd = { 'input_ids': b }
