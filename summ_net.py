@@ -2,7 +2,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import pytorch_lightning as pl
-from util import dev
+import util
+import datetime as dt
 
 __CUDA__ = torch.cuda.is_available()
 
@@ -73,6 +74,7 @@ class SummNet(pl.LightningModule):
             nn.Linear(fc_dim, vocab_size),
             nn.LeakyReLU(),
         )
+        self.gc_time = dt.datetime.now()
 
     def forward(self, xi, _=None):
         x = self.token_embedding_table(xi).transpose(1, 2)
@@ -89,6 +91,8 @@ class SummNet(pl.LightningModule):
         return y_hat
     
     def _shared_eval(self, batch, batch_idx, prefix):
+        self._defrag()
+        
         B, T = batch.shape
         if False:
             if T == 2:
@@ -105,10 +109,15 @@ class SummNet(pl.LightningModule):
         self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
         return loss
-    
+
+    def _defrag(self):
+            if dt.datetime.now() - self.gc_time > dt.timedelta(seconds=90):
+                util.defrag_cuda_memory()
+                torch.cuda.empty_cache()
+                self.gc_time = dt.datetime.now()
+
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-5)
-    
 
     def training_step(self, batch, batch_idx):
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
@@ -122,11 +131,11 @@ class SummNet(pl.LightningModule):
 
 def generate(model, idx=None, max_new_tokens=100):    
     if idx == None:
-        idx = torch.zeros( (1, 1), dtype=torch.long ).to(dev())
-    idx = idx.to(dev())
+        idx = torch.zeros( (1, 1), dtype=torch.long, device=model.device )
+    idx = idx.to(model.device)
     assert(idx.dim() == 2)
     # Accumulate predicted tokens here. XXX: could just chop off tail of idx instead
-    preds = idx.clone().to(dev()).squeeze(dim=0)
+    preds = idx.clone().to(model.device).squeeze(dim=0)
 
     for _ in range(max_new_tokens):
         logits = model(idx)[0, -1, :] # Only care about the last prediction
