@@ -23,9 +23,10 @@ def score(mdl, idx, sequence):
         idx = torch.cat( (idx, torch.tensor([[tok]]).to(dev())), dim=1)
     return logprobsum
 
-def beamsearch(mdl, idx, beam_size=15, max_new_tokens=100, temperature=1.0):
+def beamsearch(mdl, idx, beam_size=22, max_new_tokens=100, temperature=1.0):
     candidates = [ (0.0, False, idx) ]
 
+    k_expansion_factor_per_beam = 3
     def dump_cands():
         i = 0
         print("------------------")
@@ -44,7 +45,7 @@ def beamsearch(mdl, idx, beam_size=15, max_new_tokens=100, temperature=1.0):
             # logits ~ B,T,V
             logits = mdl(idx)[0, -1, :] / temperature
             probs = F.softmax(logits, dim=-1)
-            preds = torch.multinomial(probs, beam_size)
+            preds = torch.multinomial(probs, k_expansion_factor_per_beam)
             for i in preds:
                 logprob = torch.log(probs[i])
                 # Apply a length-normalization; this is a hack
@@ -53,13 +54,16 @@ def beamsearch(mdl, idx, beam_size=15, max_new_tokens=100, temperature=1.0):
                                         i == td.sep_token_id(),
                                         torch.cat( (idx, torch.tensor([[i]]).to(dev())), dim=1)) )
         candidates = sorted(new_candidates, key=lambda x: x[0], reverse=True)[:beam_size]
-        assert len(candidates) == beam_size
+        assert len(candidates) <= beam_size
         dump_cands()
     return candidates
 
-def beamsearch_respond(mdl, prompt, beam_size=15, max_new_tokens=100):
+def beamsearch_respond(mdl, prompt, beam_size=15, max_new_tokens=100, temperature=1.0):
     idx =  torch.unsqueeze(my_encode(prompt), 0).to(dev())
-    candidates = beamsearch(mdl, idx, beam_size, max_new_tokens)
+    candidates = beamsearch(mdl, idx,
+                            beam_size=beam_size,
+                            max_new_tokens=max_new_tokens,
+                            temperature=temperature)
     score,terminated,seq = candidates[0]
     return td.decode(seq[0])
 
@@ -73,10 +77,10 @@ def greedy_respond(mdl, prompt):
     d = { 'input_ids': idx, 'attention_mask': torch.ones_like(idx)}
     toks = mdl.generate(idx, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True)
 
-def chat(mdl):
+def chat(mdl, beam_size, temp):
     with torch.no_grad():
         while True:
-            print(beamsearch_respond(mdl, input('> ')))
+            print(beamsearch_respond(mdl, input('> '), beam_size=beam_size, temperature=temp))
 
 
 class Generable(transformers.GenerationMixin, sn.SummNet):
@@ -106,11 +110,23 @@ class Generable(transformers.GenerationMixin, sn.SummNet):
 
 if __name__ == "__main__":
     import os
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog='chat.py',
+        description='Synthesize text completions interactively',
+        epilog='Beaming our way to your laptop\'s screen, and maybe ...  just maybe ... your heart'
+    )
+    parser.add_argument('filename')
+    parser.add_argument('--beam-width', type=int, default=12,
+            help='Beam width. Larger values run slower.')
+    parser.add_argument('--temp', type=float, default=1.0,
+            help='Temperature for estimator.')
     os.putenv('TORCH_CPU_ONLY', '1')
     mdl = 'model.ckpt'
-    if len(sys.argv) > 1:
-        mdl = sys.argv[1]
-    print("loading {} ...".format(mdl),)
-    mdl = Generable.load_from_checkpoint(mdl).to(dev())
+    args = parser.parse_args()
+    mdl = Generable.load_from_checkpoint(args.filename).to(dev())
+    print("loading {} ...".format(args.filename),)
     print("done")
-    chat(mdl)
+    chat(mdl, args.beam_width, args.temp)

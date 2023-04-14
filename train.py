@@ -60,9 +60,10 @@ def main(argv):
     else:
         print("creating new model")
         model = SummNet(text_data.vocabulary_size(),
-                        args.embedding_width,
-                        args.fc_width,
-                        args.wavenet_height)
+                        dim = args.embedding_width,
+                        fc_dim = args.fc_width,
+                        height = args.wavenet_height,
+                        max_length = args.max_length)
         
     trainer = pl.Trainer(accelerator='auto',
                          devices='auto',

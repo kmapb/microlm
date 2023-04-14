@@ -1,13 +1,17 @@
 import torch
 import datasets
 import pytorch_lightning as pl
-from transformers import BertTokenizer, DataCollatorForLanguageModeling, DataCollatorWithPadding
+from transformers import AutoTokenizer, BertTokenizer, DataCollatorForLanguageModeling, DataCollatorWithPadding
 
 TOKENIZER=None
+
+def _setup_tokenizer():
+    global TOKENIZER
+    TOKENIZER = AutoTokenizer.from_pretrained("bert-base-cased")
 def _tokenizer():
     global TOKENIZER
     if TOKENIZER is None:
-            TOKENIZER = BertTokenizer.from_pretrained("bert-base-cased")
+        _setup_tokenizer()
     return TOKENIZER
 
 def tokenize(text, add_special_tokens=True):
@@ -19,8 +23,11 @@ def vocabulary_size():
 def sep_token_id():
     return _tokenizer().sep_token_id
 
-def encode(s, add_special_tokens=True):
-    return _tokenizer()(s['text'], add_special_tokens=add_special_tokens)
+def encode(s, add_special_tokens=True, truncation=True, max_length=None):
+    return _tokenizer()(s['text'],
+                        add_special_tokens=add_special_tokens,
+                        max_length=max_length,
+                        truncation=truncation)
 
 def decode(t):
     return _tokenizer().decode(t)
@@ -37,7 +44,7 @@ def embatch(encoded, max_batch_size=16):
     for i in range(0, B):
         x[i, B-i-1:] = encoded[:T-B+i+1]
     return x
-    
+
 # e.g., dataset = load_dataset('the_pile', 'all', split='train', streaming=True)
 def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_proc=16):
     ds = datasets.load_dataset(name, config, split=split, streaming=streaming, num_proc=num_proc)
@@ -185,16 +192,19 @@ class BasicDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         cols = ['input_ids', 'token_type_ids', 'attention_mask']
         print("Tokenizing...")
+        
+        def encode_truncated(s):
+            return encode(s, max_length=self.max_length, truncation=True)
 
-        self.train_dataset = self.train_dataset.map(encode, batched=True, num_proc=self.num_workers)
+        self.train_dataset = self.train_dataset.map(encode_truncated, batched=True, num_proc=self.num_workers)
         self.train_dataset.set_format(type="torch", columns=cols)
         self.train_dataloader_ = self.data_loader(self.train_dataset)
         
-        self.val_dataset = self.val_dataset.map(encode, batched=True, num_proc=self.num_workers)
+        self.val_dataset = self.val_dataset.map(encode_truncated, batched=True, num_proc=self.num_workers)
         self.val_dataset.set_format(type="torch", columns=cols)
         self.val_dataloader_ = self.data_loader(self.val_dataset)
         
-        self.test_dataset = self.test_dataset.map(encode, batched=True, num_proc=self.num_workers)
+        self.test_dataset = self.test_dataset.map(encode_truncated, batched=True, num_proc=self.num_workers)
         self.test_dataset.set_format(type="torch", columns=cols)
         self.test_dataloader_ = self.data_loader(self.test_dataset)
         

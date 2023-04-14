@@ -61,9 +61,10 @@ class DilationNet(nn.Module):
             yield c
 
 class SummNet(pl.LightningModule):
-    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=16):
+    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=16, max_length=2**16):
         super(SummNet, self).__init__()
         self.dim = dim
+        self.max_length = max_length
         self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
@@ -94,11 +95,8 @@ class SummNet(pl.LightningModule):
         self._defrag()
         
         B, T = batch.shape
-        if False:
-            if T == 2:
-                # Nothing to learn here! Return zero loss.
-                z = torch.ones(1, requires_grad=True)
-                return F.cross_entropy(z, z)
+        assert T <= self.max_length
+
         x = batch[:, :-1]
         y = batch[:, 1:]
         assert y.shape == (B, T - 1)
@@ -108,6 +106,9 @@ class SummNet(pl.LightningModule):
         loss = F.cross_entropy(y_hat, y.reshape(-1))
         self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
+        self.log(prefix + 'cuda_malloc_mb', torch.cuda.memory_allocated(0)/1024.0/1024)
+        self.log(prefix + 'cuda_reserved_mb', torch.cuda.memory_reserved(0)/1024.0/1024)
+        self.log(prefix + 'cuda_max_reserved_mb', torch.cuda.max_memory_reserved(0)/1024.0/1024)
         return loss
 
     def _defrag(self):
