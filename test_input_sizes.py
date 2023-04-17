@@ -24,5 +24,8 @@ def main(mdl):
         optim.step()
 
 if __name__ == "__main__":
-    mdl = sn.SummNet.load_from_checkpoint(sys.argv[1]).to(dev())
+    if len(sys.argv) <= 1:
+        mdl = sn.SummNet().to(dev())
+    else:
+        mdl = sn.SummNet.load_from_checkpoint(sys.argv[1]).to(dev())
     main(mdl)

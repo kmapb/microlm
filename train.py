@@ -24,7 +24,7 @@ def main(argv):
                         help='Checkpoint to restore')
     parser.add_argument('--embedding-width', type=int, default=1024,
                         help='Embedding width')
-    parser.add_argument('--fc-width', type=int, default=512,
+    parser.add_argument('--fc-width', type=int, default=1024,
                         help='Classifier (FC) width')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size')
@@ -34,6 +34,8 @@ def main(argv):
                         help='Wavenet height')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')
+    parser.add_argument('--test-only', type=bool, default=False,
+                        help='Just test the checkpoint')
     args = parser.parse_args(argv)
     
     # dataset: 'bookcorpus'
@@ -71,14 +73,18 @@ def main(argv):
                          callbacks=[checkpoint_callback],
                          val_check_interval=0.001,
                          log_every_n_steps=100,
-                         limit_val_batches=0.001,
+                         limit_val_batches=8000,
+                         limit_test_batches=8000,
                          max_epochs=args.max_epochs,
                          )
 
-    dm = text_data.BasicDataModule(args.dataset, args.dataset_cfg, max_length=args.max_length,
+    dm = text_data.BasicDataModule(args.dataset,
+                                   args.dataset_cfg,
+                                   max_length=args.max_length,
                                    batch_size=args.batch_size)
-    trainer.fit(model, dm)
-    trainer.save_checkpoint('full-run.ckpt')
+    if not args.test_only:
+        trainer.fit(model, dm)
+        trainer.save_checkpoint('full-run.ckpt')
     trainer.test(model, dm)
     
 if __name__ == "__main__":

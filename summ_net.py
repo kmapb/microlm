@@ -68,6 +68,7 @@ class SummNet(pl.LightningModule):
         self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
+        self.pos_embedding = nn.Parameter(torch.randn( (dim, max_length) )).to(self.device)
         self.filter_bank = DilationNet(dim, height)
         self.head = nn.Sequential(
             nn.Linear(dim, fc_dim),
@@ -80,6 +81,9 @@ class SummNet(pl.LightningModule):
     def forward(self, xi, _=None):
         x = self.token_embedding_table(xi).transpose(1, 2)
         B, C, T = x.shape
+        
+        assert T <= self.max_length
+        x = x + self.pos_embedding[:, :T]
         filt = self.filter_bank(x)
         assert filt.shape == x.shape
         ## Segregate time channels by bouncing B,T into the 0'th dimension
