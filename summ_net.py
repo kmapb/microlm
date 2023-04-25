@@ -41,9 +41,15 @@ class Residual(nn.Module):
     def __init__(self, submodule):
         super(Residual, self).__init__()
         self.submodule = submodule
+        self.layer_norm = nn.LayerNorm(submodule.out_channels)
         
     def forward(self, x):
-        return x + self.submodule(x)
+        sum = x + self.submodule(x)
+        # (B,C,T) -> (B,T,C)
+        sum = sum.permute(0, 2, 1)
+        n = self.layer_norm(sum)
+        # (B,T,C) -> (B,C,T
+        return n.permute(0, 2, 1)
 
 
 class DilationNet(nn.Module):

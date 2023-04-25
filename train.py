@@ -16,7 +16,9 @@ def main(argv):
                         help='Name of Huggingface dataset')
     parser.add_argument('--dataset-cfg', type=str, default=None,
                         help='Config of Huggingface dataset')
-    parser.add_argument('--max-hours', type=int, default=48,
+    parser.add_argument('--streaming', type=bool, default=False,
+                        help='Download or not?')
+    parser.add_argument('--max-hours', type=int, default=96,
                         help='Maximum number of hours to train')
     parser.add_argument('--max-epochs', type=int, default=2,
                         help='Maximum number of epochs to train')
@@ -26,7 +28,7 @@ def main(argv):
                         help='Embedding width')
     parser.add_argument('--fc-width', type=int, default=1024,
                         help='Classifier (FC) width')
-    parser.add_argument('--batch-size', type=int, default=8,
+    parser.add_argument('--batch-size', type=int, default=4,
                         help='Batch size')
     parser.add_argument('--max-length', type=int, default=4096,
                         help='Maximum length of input')
@@ -71,17 +73,17 @@ def main(argv):
                          devices='auto',
                          max_time={'hours': args.max_hours},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=0.001,
+                         val_check_interval=777,
                          log_every_n_steps=100,
-                         limit_val_batches=8000,
+                         limit_val_batches=1337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
                          )
 
-    dm = text_data.BasicDataModule(args.dataset,
-                                   args.dataset_cfg,
-                                   max_length=args.max_length,
-                                   batch_size=args.batch_size)
+    stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
+    dm = stream_factory(args.dataset, args.dataset_cfg,
+                        max_length=args.max_length,
+                        batch_size=args.batch_size)
     if not args.test_only:
         trainer.fit(model, dm)
         trainer.save_checkpoint('full-run.ckpt')

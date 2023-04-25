@@ -5,3 +5,4 @@ transformers
 zstandard
 pytorch_lightning
 lightning_transformers
+matplotlib
