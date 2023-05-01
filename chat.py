@@ -5,6 +5,8 @@ import pytorch_lightning as pl
 import summ_net as sn
 import text_data as td
 import transformers
+import math
+
 from util import dev
 from transformers import GenerationConfig, PretrainedConfig
 from transformers.modeling_outputs import SequenceClassifierOutput
@@ -49,7 +51,7 @@ def beamsearch(mdl, idx, beam_size=22, max_new_tokens=100, temperature=1.0):
             for i in preds:
                 logprob = torch.log(probs[i])
                 # Apply a length-normalization; this is a hack
-                new_score = (score * tok + logprob) / (tok + 1)                
+                new_score = (score * tok + logprob) / ((tok + 1) ** 0.8)
                 new_candidates.append( (new_score,
                                         i == td.sep_token_id(),
                                         torch.cat( (idx, torch.tensor([[i]]).to(dev())), dim=1)) )

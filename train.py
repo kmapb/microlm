@@ -1,5 +1,5 @@
 import torch
-# import token_rnn
+import wandb
 import pytorch_lightning as pl
 
 import text_data
@@ -61,6 +61,7 @@ def main(argv):
     if args.checkpoint_restore:
         print("restoring from checkpoint {}".format(args.checkpoint_restore))
         model = SummNet.load_from_checkpoint(args.checkpoint_restore)
+        args.max_length = model.max_length
     else:
         print("creating new model")
         model = SummNet(text_data.vocabulary_size(),
@@ -69,13 +70,14 @@ def main(argv):
                         height = args.wavenet_height,
                         max_length = args.max_length)
         
+    wandb.init(project='microlm', config=args)
     trainer = pl.Trainer(accelerator='auto',
                          devices='auto',
                          max_time={'hours': args.max_hours},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=777,
+                         val_check_interval=3777,
                          log_every_n_steps=100,
-                         limit_val_batches=1337,
+                         limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
                          )
@@ -85,7 +87,7 @@ def main(argv):
                         max_length=args.max_length,
                         batch_size=args.batch_size)
     if not args.test_only:
-        trainer.fit(model, dm)
+        trainer.fit(model, dm, ckpt_path=args.checkpoint_restore)
         trainer.save_checkpoint('full-run.ckpt')
     trainer.test(model, dm)
     
