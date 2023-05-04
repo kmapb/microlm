@@ -74,7 +74,7 @@ class SummNet(pl.LightningModule):
         self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
-        self.pos_embedding = nn.Parameter(torch.randn( (dim, max_length) )).to(self.device)
+        self.pos_embedding = nn.Parameter(torch.randn( (dim, max_length)).to(self.device))
         self.filter_bank = DilationNet(dim, height)
         self.head = nn.Sequential(
             nn.Linear(dim, fc_dim),
@@ -102,6 +102,7 @@ class SummNet(pl.LightningModule):
         return y_hat
     
     def _shared_eval(self, batch, batch_idx, prefix):
+        batch = batch.to(self.device)
         self._defrag()
         
         B, T = batch.shape
@@ -122,10 +123,10 @@ class SummNet(pl.LightningModule):
         return loss
 
     def _defrag(self):
-            if dt.datetime.now() - self.gc_time > dt.timedelta(seconds=90):
-                util.defrag_cuda_memory()
-                torch.cuda.empty_cache()
-                self.gc_time = dt.datetime.now()
+        if dt.datetime.now() - self.gc_time > dt.timedelta(seconds=90):
+            util.defrag_cuda_memory()
+            torch.cuda.empty_cache()
+            self.gc_time = dt.datetime.now()
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
