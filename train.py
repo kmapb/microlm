@@ -69,7 +69,7 @@ def main(argv):
                         fc_dim = args.fc_width,
                         height = args.wavenet_height,
                         max_length = args.max_length)
-        
+
     wandb.init(project='microlm', config=args)
     trainer = pl.Trainer(accelerator='auto',
                          devices='auto',

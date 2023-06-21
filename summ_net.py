@@ -43,7 +43,7 @@ class Residual(nn.Module):
         super(Residual, self).__init__()
         self.submodule = submodule
         self.layer_norm = nn.LayerNorm(submodule.out_channels)
-        
+
     def forward(self, x):
         sum = x + self.submodule(x)
         # (B,C,T) -> (B,T,C)
@@ -130,7 +130,7 @@ class SummNet(pl.LightningModule):
                 self.gc_time = dt.datetime.now()
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-5)
+        return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
 
     def training_step(self, batch, batch_idx):
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
