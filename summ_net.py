@@ -33,7 +33,7 @@ class CausalConv1d(nn.Module):
         """
         B,C,T = seq.shape
         assert(C == self.in_channels)
-        # print("QQQ {}, dil {}".format(seq.shape, self.dilation))
+        #print("QQQ {}, dil {}".format(seq.shape, self.dilation))
         conv1d_out = self.conv1d(seq)[:, :, 0:-(self.kernel_size-1)*self.dilation]
         assert conv1d_out.shape == (B, self.out_channels, T)
         return F.leaky_relu(conv1d_out)
@@ -68,7 +68,7 @@ class DilationNet(nn.Module):
             yield c
 
 class SummNet(pl.LightningModule):
-    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=16, max_length=2**16):
+    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=16, max_length=2**17):
         super(SummNet, self).__init__()
         self.dim = dim
         self.max_length = max_length

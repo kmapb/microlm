@@ -12,9 +12,9 @@ def main(argv):
                         prog='train.py',
                         description='Trains a model on a dataset',
                         epilog='May the odds be ever in your favor.')
-    parser.add_argument('--dataset', type=str, default='bookcorpus',
+    parser.add_argument('--dataset', type=str, default='wikitext',
                         help='Name of Huggingface dataset')
-    parser.add_argument('--dataset-cfg', type=str, default=None,
+    parser.add_argument('--dataset-cfg', type=str, default='wikitext-2-v1',
                         help='Config of Huggingface dataset')
     parser.add_argument('--streaming', type=bool, default=False,
                         help='Download or not?')
@@ -39,13 +39,13 @@ def main(argv):
     parser.add_argument('--test-only', type=bool, default=False,
                         help='Just test the checkpoint')
     args = parser.parse_args(argv)
-    
+
     # dataset: 'bookcorpus'
     # dataset: 'the_pile', dataset_cfg: 'all'
     # dataset: 'wikitext', dataset_cfg: 'wikitext-2-v1', # quick test
     # dataset: 'wikitext', dataset_cfg: 'wikitext-103-v1',
     # dataset: 'c4', 'dataset_cfg': 'en',
-        
+
     # Allow the hardware to use mixed precision
     torch.set_float32_matmul_precision('medium')
     pl.seed_everything(args.random_seed)
@@ -69,6 +69,8 @@ def main(argv):
                         fc_dim = args.fc_width,
                         height = args.wavenet_height,
                         max_length = args.max_length)
+    if False:
+        model = model.cpu()
 
     wandb.init(project='microlm', config=args)
     trainer = pl.Trainer(accelerator='auto',

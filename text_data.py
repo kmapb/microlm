@@ -1,14 +1,14 @@
 import torch
 import datasets
 import pytorch_lightning as pl
-from transformers import AutoTokenizer, BertTokenizer, DataCollatorWithPadding
+from transformers import AutoTokenizer, BertTokenizer, DataCollatorWithPadding, XLNetTokenizer
 from torch.nn.utils.rnn import pad_sequence
 
 TOKENIZER=None
 
 def _setup_tokenizer():
     global TOKENIZER
-    TOKENIZER = AutoTokenizer.from_pretrained("bert-base-cased")
+    TOKENIZER = AutoTokenizer.from_pretrained("xlnet-base-cased")
 def _tokenizer():
     global TOKENIZER
     if TOKENIZER is None:

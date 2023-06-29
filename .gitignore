@@ -7,3 +7,4 @@ lightning_logs/*
 model.ckpt
 val_ckpts/*
 interesting_checkpoints/*
+data/*

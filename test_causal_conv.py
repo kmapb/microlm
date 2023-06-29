@@ -111,7 +111,7 @@ def test_summ_net(height=15):
 
     net = SummNet(height=18, dim=C).cuda()
     print("net instantiated!")
-    x = torch.randint(0, 29000, (B, T)).cuda()
+    x = torch.randint(0, 29000, (B, C, T)).cuda()
     y = net(x)
     print("y ~ {}".format(y.shape))
 

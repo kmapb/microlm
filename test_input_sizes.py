@@ -1,6 +1,8 @@
 import torch
 import summ_net as sn
 import sys
+import wandb
+
 from util import dev
 
 def syn_data(B, T):
@@ -8,12 +10,13 @@ def syn_data(B, T):
     return torch.randint(0, V, (B, T)).to(dev())
 
 def main(mdl):
-    batchsz = 8
+    wandb.init(project='_test_microlm')
+    batchsz = 1
     optim = mdl.configure_optimizers()
     torch.set_float32_matmul_precision('medium')
 
-    for i in range(5, 40):
-        inplen = int(1.5 ** i)
+    for i in range(10, 100):
+        inplen = int(1.2 ** i)
         print("Trying {}".format(inplen))
         b = syn_data(batchsz, inplen)
         bd = { 'input_ids': b }
