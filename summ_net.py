@@ -125,7 +125,6 @@ class SummNet(pl.LightningModule):
 
     def _defrag(self):
             if dt.datetime.now() - self.gc_time > dt.timedelta(seconds=90):
-                print("defragging")
                 util.defrag_cuda_memory()
                 torch.cuda.empty_cache()
                 self.gc_time = dt.datetime.now()
