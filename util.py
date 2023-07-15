@@ -8,7 +8,10 @@ def defrag_cuda_memory():
     """
     # Run a full garbage collect first so any dangling tensors are released
     gc.collect()
+    # Now empty the cache to flush the allocator
+    torch.cuda.empty_cache()
 
+    return
     # Then move all tensors to the CPU
     locations = {}
     for obj in gc.get_objects():

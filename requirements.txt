@@ -6,3 +6,4 @@ zstandard
 pytorch_lightning
 lightning_transformers
 matplotlib
+wandb

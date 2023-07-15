@@ -18,7 +18,7 @@ def main(argv):
                         help='Config of Huggingface dataset')
     parser.add_argument('--streaming', type=bool, default=False,
                         help='Download or not?')
-    parser.add_argument('--max-hours', type=int, default=96,
+    parser.add_argument('--max-hours', type=float, default=0.5,
                         help='Maximum number of hours to train')
     parser.add_argument('--max-epochs', type=int, default=2,
                         help='Maximum number of epochs to train')
@@ -69,8 +69,6 @@ def main(argv):
                         fc_dim = args.fc_width,
                         height = args.wavenet_height,
                         max_length = args.max_length)
-    if False:
-        model = model.cpu()
 
     wandb.init(project='microlm', config=args)
     trainer = pl.Trainer(accelerator='auto',
