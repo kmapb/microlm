@@ -1,7 +1,8 @@
 FROM gitpod/workspace-full
 
-RUN sudo apt update
+RUN sudo apt-get update
 RUN sudo apt-get install -y libvulkan1 libgl1 libglib2.0-0 wget
+RUN sudo apt-get install -y nvidia-cuda-toolkit
 
 ## This really does seem to need to be an && pipeline(?)
 RUN \
