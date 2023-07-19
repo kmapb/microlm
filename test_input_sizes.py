@@ -1,7 +1,6 @@
 import torch
 import summ_net as sn
 import sys
-import wandb
 
 from util import dev
 
@@ -10,7 +9,6 @@ def syn_data(B, T):
     return torch.randint(0, V, (B, T)).to(dev())
 
 def main(mdl):
-    wandb.init(project='_test_microlm')
     batchsz = 1
     optim = mdl.configure_optimizers()
     torch.set_float32_matmul_precision('medium')

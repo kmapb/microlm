@@ -1,5 +1,4 @@
 import torch
-import wandb
 import pytorch_lightning as pl
 
 import text_data
@@ -70,12 +69,12 @@ def main(argv):
                         height = args.wavenet_height,
                         max_length = args.max_length)
 
-    wandb.init(project='microlm', config=args)
-    trainer = pl.Trainer(accelerator='auto',
-                         devices='auto',
+    trainer = pl.Trainer(accelerator='gpu',
+                         precision='16-mixed',
+                         devices=1,
                          max_time={'hours': args.max_hours},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=3777,
+                         val_check_interval=1000,
                          log_every_n_steps=100,
                          limit_val_batches=337,
                          limit_test_batches=8000,
