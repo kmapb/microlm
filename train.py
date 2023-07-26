@@ -11,11 +11,11 @@ def main(argv):
                         prog='train.py',
                         description='Trains a model on a dataset',
                         epilog='May the odds be ever in your favor.')
-    parser.add_argument('--dataset', type=str, default='wikitext',
+    parser.add_argument('--dataset', type=str, default='c4',
                         help='Name of Huggingface dataset')
-    parser.add_argument('--dataset-cfg', type=str, default='wikitext-2-v1',
+    parser.add_argument('--dataset-cfg', type=str, default='en',
                         help='Config of Huggingface dataset')
-    parser.add_argument('--streaming', type=bool, default=False,
+    parser.add_argument('--streaming', type=bool, default=True,
                         help='Download or not?')
     parser.add_argument('--max-hours', type=float, default=0.5,
                         help='Maximum number of hours to train')

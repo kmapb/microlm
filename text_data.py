@@ -8,7 +8,7 @@ TOKENIZER=None
 
 def _setup_tokenizer():
     global TOKENIZER
-    TOKENIZER = AutoTokenizer.from_pretrained("xlnet-base-cased")
+    TOKENIZER = AutoTokenizer.from_pretrained("bert-base-cased")
 def _tokenizer():
     global TOKENIZER
     if TOKENIZER is None:
