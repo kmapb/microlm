@@ -114,7 +114,7 @@ class BasicDataModule(pl.LightningDataModule):
         self.train_dataloader_ = self.data_loader('train')
         try:
             self.test_dataloader_ = self.data_loader('test')
-            self.val_dataset = self.data_loader('validation')
+            self.val_dataloader_ = self.data_loader('validation')
         except ValueError:
             try:
                 self.train_dataloader_ = self.data_loader('train[0%:80%]')
