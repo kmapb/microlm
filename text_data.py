@@ -91,7 +91,7 @@ class BasicDataModule(pl.LightningDataModule):
                 with_format(type="torch")
 
         def encode_ds(ds):
-            if self.streaming:
+            if True or self.streaming:
                 return encode_ds_streaming(ds)
             return encode_truncated_ds(ds)
 
@@ -108,9 +108,11 @@ class BasicDataModule(pl.LightningDataModule):
     
     def setup(self, stage=None):
         if self.streaming:
+            print("Streaming...")
             self.num_workers = 1
+        else:
+            print("Tokenizing...")
 
-        print("Tokenizing...")
         self.train_dataloader_ = self.data_loader('train')
         try:
             self.test_dataloader_ = self.data_loader('test')

@@ -9,13 +9,20 @@ def syn_data(B, T):
     V = 256
     return torch.randint(0, V, (B, T)).to(dev())
 
-def main(mdl, batchsz):
-    optim = mdl.configure_optimizers()
+def main(args):
+    batchsz = args.batch_size
     torch.set_float32_matmul_precision('medium')
 
     for i in range(10, 100):
         inplen = int(1.2 ** i)
+        mdl = sn.SummNet(text_data.vocabulary_size(),
+                         dim = args.embedding_width,
+                         fc_dim = args.fc_width,
+                         height = args.wavenet_height,
+                         max_length = inplen).to(dev())
+
         print("Trying {}".format(inplen))
+        optim = mdl.configure_optimizers()
         b = syn_data(batchsz, inplen)
         bd = { 'input_ids': b }
 
@@ -41,12 +48,4 @@ if __name__ == "__main__":
                         help='Checkpoint to restore')
     args = parser.parse_args(sys.argv[1:])
 
-    if args.checkpoint:
-        mdl = sn.SummNet.load_from_checkpoint(args.checkpoint).to(dev())
-    else:
-        mdl = sn.SummNet(text_data.vocabulary_size(),
-                         dim = args.embedding_width,
-                         fc_dim = args.fc_width,
-                         height = args.wavenet_height,
-                         max_length = args.max_length)
-    main(mdl, args.batch_size)
+    main(args)
