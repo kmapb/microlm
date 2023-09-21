@@ -28,7 +28,7 @@ def score(mdl, idx, sequence):
 def beamsearch(mdl, idx, beam_size=22, max_new_tokens=100, temperature=1.0):
     candidates = [ (0.0, False, idx) ]
 
-    k_expansion_factor_per_beam = 3
+    k_expansion_factor_per_beam = beam_size
     def dump_cands():
         i = 0
         print("------------------")

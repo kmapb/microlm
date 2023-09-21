@@ -14,7 +14,7 @@ def main(args):
     torch.set_float32_matmul_precision('medium')
 
     for i in range(10, 100):
-        inplen = int(1.2 ** i)
+        inplen = int(1.4 ** i)
         mdl = sn.SummNet(text_data.vocabulary_size(),
                          dim = args.embedding_width,
                          fc_dim = args.fc_width,
