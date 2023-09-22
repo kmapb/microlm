@@ -12,7 +12,7 @@ def test_causal_conv_basic():
     T = 100
     filter_width = 4
     
-    # No dilation: just channels in, stried of 1
+    # No dilation: just channels in, stride of 1
     c1 = CausalConv1d(filter_width, C, C, 1).cuda()
     init_c1_params(c1)
     x = torch.zeros(B, C, T).cuda()
@@ -109,9 +109,10 @@ def test_dilation_net(height=1):
 def test_summ_net(height=15):
     B, C, T = 1, 384, 100
 
-    net = SummNet(height=18, dim=C).cuda()
+    net = SummNet(height=10, dim=C).cuda()
     print("net instantiated!")
-    x = torch.randint(0, 29000, (B, C, T)).cuda()
+    x = torch.randint(0, 29000, (C, T)).cuda()
+    print("x ~ {}".format(x.shape))
     y = net(x)
     print("y ~ {}".format(y.shape))
 
@@ -119,8 +120,10 @@ def test_summ_net(height=15):
         net.parameters(), lr=0.01, momentum=0.9
     )
 
+    btch = torch.randint(0, 29000, (B, T)).cuda()
     for i in range(1000):
-        loss = net.training_step(x, 0)
+        b = {'input_ids': btch}
+        loss = net.training_step(b, 0)
         print(loss)
         loss.backward()
         optimizer.step()
