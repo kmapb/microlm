@@ -1,6 +1,10 @@
-from summ_net import CausalConv1d, DilationNet, SummNet
+from summ_net import DilationNet, SummNet
 import sys
 import torch
+
+def make_causal_conv1d(kernel_size, in_channels, out_channels, dilation_rate):
+    from summ_net import CausalConv1d
+    return CausalConv1d(kernel_size, in_channels, out_channels, dilation_rate)
 
 def init_c1_params(c1, wval=1.0, bval=0.0):
     c1.state_dict()['conv1d.weight'].fill_(wval)
@@ -13,7 +17,7 @@ def test_causal_conv_basic():
     filter_width = 4
     
     # No dilation: just channels in, stride of 1
-    c1 = CausalConv1d(filter_width, C, C, 1).cuda()
+    c1 = make_causal_conv1d(filter_width, C, C, 1).cuda()
     init_c1_params(c1)
     x = torch.zeros(B, C, T).cuda()
     impulse_start_time = 10
@@ -52,7 +56,7 @@ def test_causal_conv_dilatory(dilation=2):
     filter_width = 2
     impulse_start_time = 10
     
-    c1 = CausalConv1d(filter_width, C, C, dilation).cuda()
+    c1 = make_causal_conv1d(filter_width, C, C, dilation).cuda()
     init_c1_params(c1)
 
     x = torch.zeros(B, C, T).cuda()
@@ -132,11 +136,11 @@ def test_summ_net(height=15):
 
 if __name__ == "__main__":
     torch.autograd.set_detect_anomaly(True)
-    # test_causal_conv_basic()
-    # test_causal_conv_dilatory(2)
-    # test_causal_conv_dilatory(4)
+    test_causal_conv_basic()
+    test_causal_conv_dilatory(2)
+    test_causal_conv_dilatory(4)
     for h in range(1, 10):
         pass
         # test_dilation_net(h)
-    test_summ_net()
+    # test_summ_net()
 
