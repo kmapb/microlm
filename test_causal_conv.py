@@ -3,23 +3,35 @@ import sys
 import torch
 
 def make_causal_conv1d(kernel_size, in_channels, out_channels, dilation_rate):
-    from summ_net import CausalConv1d
-    return CausalConv1d(kernel_size, in_channels, out_channels, dilation_rate)
+    from dilatory import DilatedConv1D
+    return DilatedConv1D(in_channels, out_channels, kernel_size, dilation_rate)
+    # from summ_net import CausalConv1d
+    # return CausalConv1d(kernel_size, in_channels, out_channels, dilation_rate)
 
 def init_c1_params(c1, wval=1.0, bval=0.0):
     c1.state_dict()['conv1d.weight'].fill_(wval)
     c1.state_dict()['conv1d.bias'].fill_(bval)
     
+def test_swizzle():
+    import dilatory as d
+    swz = d.dilated_indices(100, 4, 1)
+    print(swz)
+    swz = d.dilated_indices(100, 4, 2)
+    print(swz)
+    #import sys; sys.exit(0)
+
+test_swizzle()
+
 def test_causal_conv_basic():
     B = 1
     C = 4
-    T = 100
+    T = 14
     filter_width = 4
     
     # No dilation: just channels in, stride of 1
-    c1 = make_causal_conv1d(filter_width, C, C, 1).cuda()
+    c1 = make_causal_conv1d(filter_width, C, C, 1)
     init_c1_params(c1)
-    x = torch.zeros(B, C, T).cuda()
+    x = torch.zeros(B, C, T)
     impulse_start_time = 10
     x[0][0][impulse_start_time] = 1.0
     y = c1(x)
@@ -36,7 +48,7 @@ def test_causal_conv_basic():
     
     # Backward?
 
-    y_hat = torch.zeros(y.shape).cuda()
+    y_hat = torch.zeros(y.shape)
     optimizer = torch.optim.SGD(
         c1.parameters(), lr=0.01, momentum=0.9
     )
@@ -56,10 +68,10 @@ def test_causal_conv_dilatory(dilation=2):
     filter_width = 2
     impulse_start_time = 10
     
-    c1 = make_causal_conv1d(filter_width, C, C, dilation).cuda()
+    c1 = make_causal_conv1d(filter_width, C, C, dilation)
     init_c1_params(c1)
 
-    x = torch.zeros(B, C, T).cuda()
+    x = torch.zeros(B, C, T)
     x[0, 0, impulse_start_time] = 1.0
     y = c1(x)
     print("Checks dilatory {}!".format(dilation))
@@ -82,11 +94,11 @@ def test_causal_conv_dilatory(dilation=2):
 def test_dilation_net(height=1):
     B, C, T = 1, 3, 20
     
-    net = DilationNet(C, height).cuda()
+    net = DilationNet(C, height)
     for c in net.convs():
         init_c1_params(c)
-        
-    x = torch.zeros(B, C, T).cuda()
+
+    x = torch.zeros(B, C, T)
     impulse_start_time = 10
     x[0, 0, impulse_start_time] = 1.0
     
@@ -99,7 +111,7 @@ def test_dilation_net(height=1):
     assert y[:, :, impulse_start_time].sum() > 0.0
 
     # Exercise backward, updates weights    
-    target = torch.zeros(y.shape).cuda()
+    target = torch.zeros(y.shape)
     optimizer = torch.optim.SGD(
         net.parameters(), lr=1e-6, momentum=0.9
     )
@@ -113,9 +125,9 @@ def test_dilation_net(height=1):
 def test_summ_net(height=15):
     B, C, T = 1, 384, 100
 
-    net = SummNet(height=10, dim=C).cuda()
+    net = SummNet(height=10, dim=C)
     print("net instantiated!")
-    x = torch.randint(0, 29000, (C, T)).cuda()
+    x = torch.randint(0, 29000, (C, T))
     print("x ~ {}".format(x.shape))
     y = net(x)
     print("y ~ {}".format(y.shape))
@@ -124,7 +136,7 @@ def test_summ_net(height=15):
         net.parameters(), lr=0.01, momentum=0.9
     )
 
-    btch = torch.randint(0, 29000, (B, T)).cuda()
+    btch = torch.randint(0, 29000, (B, T))
     for i in range(1000):
         b = {'input_ids': btch}
         loss = net.training_step(b, 0)
@@ -142,5 +154,5 @@ if __name__ == "__main__":
     for h in range(1, 10):
         pass
         # test_dilation_net(h)
-    # test_summ_net()
+    test_summ_net()
 
