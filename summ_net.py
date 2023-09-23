@@ -7,6 +7,11 @@ import datetime as dt
 
 __CUDA__ = torch.cuda.is_available()
 
+def conv1d_factory(kernel_size, in_channels, out_channels, dilation=1):
+    # return CausalConv1d(kernel_size, in_channels, out_channels, dilation)
+    import dilatory as d
+    return d.DilatedConv1D(in_channels, out_channels, kernel_size, dilation)
+
 class CausalConv1d(nn.Module):
     """
     A causal 1D convolution.
@@ -55,7 +60,7 @@ class Residual(nn.Module):
 class DilationNet(nn.Module):
     def __init__(self, channels, height):
         super(DilationNet, self).__init__()
-        self.layers = [ Residual(CausalConv1d(2, channels, channels, dilation=2 ** h)) for h in range(height) ]
+        self.layers = [ Residual(conv1d_factory(2, channels, channels, dilation=2 ** h)) for h in range(height) ]
         self.net = nn.Sequential(*self.layers)
         self.height = height
     

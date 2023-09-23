@@ -123,7 +123,7 @@ def test_dilation_net(height=1):
         optimizer.zero_grad()
 
 def test_summ_net(height=15):
-    B, C, T = 1, 384, 100
+    B, C, T = 1, 32, 50
 
     net = SummNet(height=10, dim=C)
     print("net instantiated!")

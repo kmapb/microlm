@@ -16,6 +16,8 @@ def dilated_indices(T = 4, filter_width = 2, dilation_rate = 2):
 class DilatedConv1D(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, dilation_rate):
         super(DilatedConv1D, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.dilation_rate = dilation_rate
         self.conv1d = nn.Conv1d(in_channels, out_channels, kernel_size,
