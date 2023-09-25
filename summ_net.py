@@ -53,14 +53,14 @@ class Residual(nn.Module):
         # (B,C,T) -> (B,T,C)
         sum = sum.permute(0, 2, 1)
         n = self.layer_norm(sum)
-        # (B,T,C) -> (B,C,T
+        # (B,T,C) -> (B,C,T)
         return n.permute(0, 2, 1)
 
 
 class DilationNet(nn.Module):
-    def __init__(self, channels, height):
+    def __init__(self, channels, height, kernel_size):
         super(DilationNet, self).__init__()
-        self.layers = [ Residual(conv1d_factory(2, channels, channels, dilation=2 ** h)) for h in range(height) ]
+        self.layers = [ Residual(conv1d_factory(kernel_size, channels, channels, dilation=kernel_size ** h)) for h in range(height) ]
         self.net = nn.Sequential(*self.layers)
         self.height = height
     
@@ -72,15 +72,15 @@ class DilationNet(nn.Module):
             yield c
 
 class SummNet(pl.LightningModule):
-    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=16, max_length=2**17):
+    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=10, max_length=2**20, kernel_size=4):
         super(SummNet, self).__init__()
         self.dim = dim
         self.max_length = max_length
         self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
-        self.pos_embedding = nn.Parameter(torch.randn( (dim, max_length)).to(self.device))
-        self.filter_bank = DilationNet(dim, height)
+        self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
+        self.filter_bank = DilationNet(dim, height, kernel_size)
         self.head = nn.Sequential(
             nn.Linear(dim, fc_dim),
             nn.LeakyReLU(),

@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import util
 
-def dilated_indices(T = 4, filter_width = 2, dilation_rate = 2):
+def dilated_indices(T = 4, filter_width = 2, dilation_rate = 2, device=None):
     padded_T = T + 1
-    out_indices = torch.zeros(filter_width * padded_T, dtype=torch.int64)
+    out_indices = torch.zeros(filter_width * padded_T, dtype=torch.int64, device=device)
     for span in range(0, padded_T):
         i = span * filter_width
         for j in range(0, filter_width):
@@ -28,7 +28,7 @@ class DilatedConv1D(nn.Module):
         ## Zero-pad; n'th element contains zeros
         B, C, T = x.shape
         x = torch.cat([x, torch.zeros(B, C, 1, device=x.device)], dim=2)
-        idxs = dilated_indices(T, self.kernel_size, self.dilation_rate)
+        idxs = dilated_indices(T, self.kernel_size, self.dilation_rate, x.device)
         swizzle = x.index_select(2, idxs)
         return self.conv1d(swizzle)[:, :, :T]
 

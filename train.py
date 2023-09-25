@@ -27,6 +27,8 @@ def main(argv):
                         help='Embedding width')
     parser.add_argument('--fc-width', type=int, default=1024,
                         help='Classifier (FC) width')
+    parser.add_argument('--kernel-size', type=int, default=4,
+                        help='Receptive field for convolutions')
     parser.add_argument('--batch-size', type=int, default=4,
                         help='Batch size')
     parser.add_argument('--max-length', type=int, default=4096,
@@ -67,7 +69,8 @@ def main(argv):
                         dim = args.embedding_width,
                         fc_dim = args.fc_width,
                         height = args.wavenet_height,
-                        max_length = args.max_length)
+                        max_length = args.max_length,
+                        kernel_size=args.kernel_size)
 
     trainer = pl.Trainer(accelerator='gpu',
                          precision='16-mixed',
