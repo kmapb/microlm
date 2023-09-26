@@ -26,7 +26,7 @@ def score(mdl, idx, sequence):
     return logprobsum
 
 def beamsearch(mdl, idx, beam_size=22, max_new_tokens=100, temperature=1.0):
-    candidates = [ (0.0, False, idx) ]
+    candidates = [ (-1e8, False, idx) ]
 
     k_expansion_factor_per_beam = beam_size
     def dump_cands():
@@ -37,25 +37,25 @@ def beamsearch(mdl, idx, beam_size=22, max_new_tokens=100, temperature=1.0):
             i += 1
         print("------------------")
 
-    for tok in range(max_new_tokens):
+    for tok in range(1, max_new_tokens + 1):
         new_candidates = [] # Keep old ones in the running
         # XXX: vectorie this!
-        for score, terminated, idx in candidates:
+        for log_prob, terminated, idx in candidates:
             if terminated:
-                new_candidates.append( (score, terminated, idx) )
+                new_candidates.append( (log_prob, terminated, idx) )
                 continue
             # logits ~ B,T,V
-            logits = mdl(idx)[0, -1, :] / temperature
-            probs = F.softmax(logits, dim=-1)
-            preds = torch.multinomial(probs, k_expansion_factor_per_beam)
-            for i in preds:
-                logprob = torch.log(probs[i])
+            logits = mdl(idx)[:, -1, :] / temperature
+            probs = torch.log_softmax(logits, dim=-1)
+            topk_log_probs, topk_preds = torch.topk(probs, k_expansion_factor_per_beam)
+            for new_log_prob, new_token in zip(topk_log_probs[0], topk_preds[0]):
+                new_log_prob += log_prob # Accumulate raw logprobs
                 # Apply a length-normalization; this is a hack
-                new_score = (score * tok + logprob) / ((tok + 1) ** 0.8)
+                new_score = new_log_prob / (tok  ** 0.7)
                 new_candidates.append( (new_score,
-                                        i == td.sep_token_id(),
-                                        torch.cat( (idx, torch.tensor([[i]]).to(dev())), dim=1)) )
-        candidates = sorted(new_candidates, key=lambda x: x[0], reverse=True)[:beam_size]
+                                        new_token == td.sep_token_id(),
+                                        torch.cat( (idx, torch.tensor([[new_token]]).to(dev())), dim=1)) )
+        candidates = sorted(candidates + new_candidates, key=lambda x: x[0], reverse=True)[:beam_size]
         assert len(candidates) <= beam_size
         dump_cands()
     return candidates
@@ -69,7 +69,7 @@ def beamsearch_respond(mdl, prompt, beam_size=15, max_new_tokens=100, temperatur
     score,terminated,seq = candidates[0]
     return td.decode(seq[0])
 
-def greedy_respond(mdl, prompt):
+def greedy_respond(mdl, prompt, beam_size=0, temperature=0.0):
     idx = torch.unsqueeze(my_encode(prompt), 0).to(dev())
     toks = sn.generate(mdl, idx).to(dev())
     s = score(mdl, idx, toks)
@@ -80,9 +80,10 @@ def greedy_respond(mdl, prompt):
     toks = mdl.generate(idx, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True)
 
 def chat(mdl, beam_size, temp):
+    resp = beamsearch_respond
     with torch.no_grad():
         while True:
-            print(beamsearch_respond(mdl, input('> '), beam_size=beam_size, temperature=temp))
+            print(resp(mdl, input('> '), beam_size=beam_size, temperature=temp))
 
 
 class Generable(transformers.GenerationMixin, sn.SummNet):
@@ -128,7 +129,9 @@ if __name__ == "__main__":
     os.putenv('TORCH_CPU_ONLY', '1')
     mdl = 'model.ckpt'
     args = parser.parse_args()
-    mdl = Generable.load_from_checkpoint(args.filename).to(dev())
-    print("loading {} ...".format(args.filename),)
-    print("done")
-    chat(mdl, args.beam_width, args.temp)
+    with torch.no_grad():
+        mdl = Generable.load_from_checkpoint(args.filename).to(dev())
+
+        print("loading {} ...".format(args.filename),)
+        print("done")
+        chat(mdl, args.beam_width, args.temp)

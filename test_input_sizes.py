@@ -19,7 +19,8 @@ def main(args):
                          dim = args.embedding_width,
                          fc_dim = args.fc_width,
                          height = args.wavenet_height,
-                         max_length = inplen).to(dev())
+                         max_length = inplen,
+                         kernel_size = args.kernel_size).to(dev())
 
         print("Trying {}".format(inplen))
         optim = mdl.configure_optimizers()
@@ -44,6 +45,8 @@ if __name__ == "__main__":
                         help='Batch size')
     parser.add_argument('--wavenet-height', type=int, default=13,
                         help='Wavenet height')
+    parser.add_argument('--kernel-size', type=int, default=4,
+            help = 'Kernel size')
     parser.add_argument('--checkpoint', type=str, default=None,
                         help='Checkpoint to restore')
     args = parser.parse_args(sys.argv[1:])

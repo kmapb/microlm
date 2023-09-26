@@ -82,6 +82,7 @@ def main(argv):
                          limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
+                         logger=pl.loggers.WandbLogger(log_model="all"),
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule

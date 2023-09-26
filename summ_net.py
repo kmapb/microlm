@@ -4,6 +4,7 @@ from torch.nn import functional as F
 import pytorch_lightning as pl
 import util
 import datetime as dt
+import wandb
 
 __CUDA__ = torch.cuda.is_available()
 
@@ -92,7 +93,7 @@ class SummNet(pl.LightningModule):
     def forward(self, xi, _=None):
         x = self.token_embedding_table(xi).transpose(1, 2)
         B, C, T = x.shape
-        
+
         assert T <= self.max_length
         x = x + self.pos_embedding[:, :T]
         filt = self.filter_bank(x)
