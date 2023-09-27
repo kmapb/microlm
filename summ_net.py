@@ -9,7 +9,7 @@ import wandb
 __CUDA__ = torch.cuda.is_available()
 
 def conv1d_factory(kernel_size, in_channels, out_channels, dilation=1):
-    # return CausalConv1d(kernel_size, in_channels, out_channels, dilation)
+    #return CausalConv1d(kernel_size, in_channels, out_channels, dilation)
     import dilatory as d
     return d.DilatedConv1D(in_channels, out_channels, kernel_size, dilation)
 
@@ -75,6 +75,7 @@ class DilationNet(nn.Module):
 class SummNet(pl.LightningModule):
     def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=10, max_length=2**20, kernel_size=4):
         super(SummNet, self).__init__()
+        self.save_hyperparameters()
         self.dim = dim
         self.max_length = max_length
         self.save_hyperparameters()

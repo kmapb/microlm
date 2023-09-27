@@ -51,12 +51,13 @@ def main(argv):
     torch.set_float32_matmul_precision('medium')
     pl.seed_everything(args.random_seed)
     # saves top-K checkpoints based on "val_loss" metric
+    filename_template = "ckpt-k{}-d{}".format(args.kernel_size, args.embedding_width)
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        save_top_k=10,
+        save_top_k=3,
         monitor="val_loss",
         mode="min",
         dirpath="./val_ckpts",
-        filename="ckpt-{epoch:02d}-{val_loss:.2f}",
+        filename=filename_template + "-{val_loss:.2f}"
     )
     model = None
     if args.checkpoint_restore:
@@ -82,7 +83,10 @@ def main(argv):
                          limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
-                         logger=pl.loggers.WandbLogger(log_model="all"),
+                         #logger=pl.loggers.WandbLogger(
+                         #    name="microlm",
+                         #    log_model=True,
+                         #   ),
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
@@ -91,7 +95,7 @@ def main(argv):
                         batch_size=args.batch_size)
     if not args.test_only:
         trainer.fit(model, dm, ckpt_path=args.checkpoint_restore)
-        trainer.save_checkpoint('full-run.ckpt')
+        trainer.save_checkpoint('full-run-d{}-h{}.ckpt'.format(args.embedding_width, args.kernel_size))
     trainer.test(model, dm)
     
 if __name__ == "__main__":
