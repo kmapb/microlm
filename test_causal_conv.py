@@ -3,25 +3,13 @@ import sys
 import torch
 
 def make_causal_conv1d(kernel_size, in_channels, out_channels, dilation_rate):
-    from dilatory import DilatedConv1D
-    return DilatedConv1D(in_channels, out_channels, kernel_size, dilation_rate)
-    # from summ_net import CausalConv1d
-    # return CausalConv1d(kernel_size, in_channels, out_channels, dilation_rate)
+    from summ_net import CausalConv1d
+    return CausalConv1d(kernel_size, in_channels, out_channels, dilation_rate)
 
 def init_c1_params(c1, wval=1.0, bval=0.0):
     c1.state_dict()['conv1d.weight'].fill_(wval)
     c1.state_dict()['conv1d.bias'].fill_(bval)
     
-def test_swizzle():
-    import dilatory as d
-    swz = d.dilated_indices(100, 4, 1)
-    print(swz)
-    swz = d.dilated_indices(100, 4, 2)
-    print(swz)
-    #import sys; sys.exit(0)
-
-test_swizzle()
-
 def test_causal_conv_basic():
     B = 1
     C = 4
