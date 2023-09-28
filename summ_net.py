@@ -9,9 +9,7 @@ import wandb
 __CUDA__ = torch.cuda.is_available()
 
 def conv1d_factory(kernel_size, in_channels, out_channels, dilation=1):
-    #return CausalConv1d(kernel_size, in_channels, out_channels, dilation)
-    import dilatory as d
-    return d.DilatedConv1D(in_channels, out_channels, kernel_size, dilation)
+    return CausalConv1d(kernel_size, in_channels, out_channels, dilation)
 
 class CausalConv1d(nn.Module):
     """
