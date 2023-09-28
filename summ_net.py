@@ -76,6 +76,7 @@ class SummNet(pl.LightningModule):
         self.save_hyperparameters()
         self.dim = dim
         self.max_length = max_length
+        self.total_train_tokens = 0
         self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
@@ -137,6 +138,8 @@ class SummNet(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
 
     def training_step(self, batch, batch_idx):
+        self.total_train_tokens += torch.sum(batch['num_tokens'])
+        self.log('train_tokens', self.total_train_tokens)
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
