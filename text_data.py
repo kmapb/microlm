@@ -60,7 +60,7 @@ class BasicDataModule(pl.LightningDataModule):
         self.streaming = False
 
     def data_loader(self, split):
-        cols = ['input_ids']
+        cols = ['input_ids', 'num_tokens']
         
         def encode_truncated(s):
             t = encode(s,
@@ -77,13 +77,16 @@ class BasicDataModule(pl.LightningDataModule):
         
         def collate_batch(batch):
             max = 0
+            total_tokens = 0
             out_batch = []
+            num_tokens = []
             for l in batch['input_ids']:
+                num_tokens += [len(l)]
                 if len(l) > max:
                     max = len(l)
                 out_batch.append(torch.tensor(l, dtype=torch.long))
             seq = pad_sequence(out_batch, batch_first=True, padding_value=_tokenizer().pad_token_id)
-            return { 'input_ids': seq }
+            return { 'input_ids': seq, 'num_tokens': num_tokens }
         
         def encode_ds_streaming(ds):
             return ds.map(encode_truncated, batched=True, batch_size=self.batch_size). \
@@ -98,8 +101,8 @@ class BasicDataModule(pl.LightningDataModule):
         ds = load_dataset(self.dataset_name, self.dataset_cfg, split=split, streaming=self.streaming)
         ds = encode_ds(ds)
         # collator = DataCollatorForLanguageModeling(tokenizer=self.tokenizer, mlm=False)
-        collator = DataCollatorWithPadding(tokenizer=self.tokenizer,
-                                           padding='longest', max_length=self.max_length)
+        # collator = DataCollatorWithPadding(tokenizer=self.tokenizer,
+        #                                    padding='longest', max_length=self.max_length)
         return torch.utils.data.DataLoader(ds,
                                            batch_size=self.batch_size,
                                            # collate_fn=collator,
