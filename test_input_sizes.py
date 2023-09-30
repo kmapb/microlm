@@ -25,7 +25,7 @@ def main(args):
         print("Trying {}".format(inplen))
         optim = mdl.configure_optimizers()
         b = syn_data(batchsz, inplen)
-        bd = { 'input_ids': b }
+        bd = { 'input_ids': b, 'num_tokens': inplen }
 
         optim.zero_grad()
         loss = mdl.training_step(bd, i)
