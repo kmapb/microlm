@@ -123,9 +123,7 @@ class SummNet(pl.LightningModule):
         loss = F.cross_entropy(y_hat, y.reshape(-1))
         self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
-        self.log(prefix + 'cuda_malloc_mb', torch.cuda.memory_allocated(0)/1024.0/1024)
-        self.log(prefix + 'cuda_reserved_mb', torch.cuda.memory_reserved(0)/1024.0/1024)
-        self.log(prefix + 'cuda_max_reserved_mb', torch.cuda.max_memory_reserved(0)/1024.0/1024)
+        self.log('train_tokens', self.total_train_tokens)
         return loss
 
     def _defrag(self):
@@ -139,7 +137,6 @@ class SummNet(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.total_train_tokens += torch.sum(batch['num_tokens'])
-        self.log('train_tokens', self.total_train_tokens)
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
     
     def validation_step(self, batch, batch_idx):
