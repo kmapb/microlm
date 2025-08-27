@@ -9,4 +9,5 @@ val_ckpts/*
 interesting_checkpoints/*
 data/*
 juice.log
+wandb/*
 

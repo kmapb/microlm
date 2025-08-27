@@ -1,21 +1,22 @@
 import torch
 from torch import nn
+from torch import Tensor as Tens
 from torch.nn import functional as F
 import pytorch_lightning as pl
 import util
+from typing import cast, Dict
 import datetime as dt
-import wandb
 
 __CUDA__ = torch.cuda.is_available()
 
-def conv1d_factory(kernel_size, in_channels, out_channels, dilation=1):
+def conv1d_factory(kernel_size: int, in_channels: int, out_channels: int, dilation: int=1):
     return CausalConv1d(kernel_size, in_channels, out_channels, dilation)
 
 class CausalConv1d(nn.Module):
     """
     A causal 1D convolution.
     """
-    def __init__(self, kernel_size, in_channels, out_channels, dilation=1):
+    def __init__(self, kernel_size: int, in_channels: int, out_channels: int, dilation: int=1):
         super(CausalConv1d, self).__init__()
         
         # attributes:
@@ -30,7 +31,7 @@ class CausalConv1d(nn.Module):
                                       padding=(kernel_size-1) * dilation,
                                       dilation=dilation)
 
-    def forward(self, seq):
+    def forward(self, seq: Tens):
         """
         Expects a 3D tensor of shape (batch_size, channels, seq_len).
         """
@@ -42,12 +43,12 @@ class CausalConv1d(nn.Module):
         return F.leaky_relu(conv1d_out)
 
 class Residual(nn.Module):
-    def __init__(self, submodule):
+    def __init__(self, submodule: nn.Module):
         super(Residual, self).__init__()
         self.submodule = submodule
-        self.layer_norm = nn.LayerNorm(submodule.out_channels)
+        self.layer_norm = nn.LayerNorm(cast(int, submodule.out_channels))
 
-    def forward(self, x):
+    def forward(self, x: Tens):
         sum = x + self.submodule(x)
         # (B,C,T) -> (B,T,C)
         sum = sum.permute(0, 2, 1)
@@ -57,13 +58,13 @@ class Residual(nn.Module):
 
 
 class DilationNet(nn.Module):
-    def __init__(self, channels, height, kernel_size):
+    def __init__(self, channels: int, height: int, kernel_size: int):
         super(DilationNet, self).__init__()
         self.layers = [ Residual(conv1d_factory(kernel_size, channels, channels, dilation=kernel_size ** h)) for h in range(height) ]
         self.net = nn.Sequential(*self.layers)
         self.height = height
     
-    def forward(self, x):
+    def forward(self, x: Tens):
         return self.net(x)
     
     def convs(self):
@@ -71,9 +72,16 @@ class DilationNet(nn.Module):
             yield c
 
 class SummNet(pl.LightningModule):
-    def __init__(self, vocab_size=29000, dim=384, fc_dim=1024, height=10, max_length=2**20, kernel_size=4):
+    def __init__(self,
+                 vocab_size: int=29000,
+                 dim: int=384,
+                 fc_dim: int=1024,
+                 height: int=10,
+                 max_length: int=2**20,
+                 kernel_size: int=4):
         super(SummNet, self).__init__()
         self.save_hyperparameters()
+        self.vocab_size = vocab_size
         self.dim = dim
         self.max_length = max_length
         self.total_train_tokens = 0
@@ -90,7 +98,7 @@ class SummNet(pl.LightningModule):
         )
         self.gc_time = dt.datetime.now()
 
-    def forward(self, xi, _=None):
+    def forward(self, xi: Tens, _=None):
         x = self.token_embedding_table(xi).transpose(1, 2)
         B, C, T = x.shape
 
@@ -104,10 +112,10 @@ class SummNet(pl.LightningModule):
         filt_trans = filt_trans.reshape(B * T, C)
         assert filt_trans.shape == (B * T, C)
         y_hat = self.head(filt_trans)
-        assert y_hat.shape == (B * T, self.hparams.vocab_size)
+        assert y_hat.shape == (B * T, self.vocab_size)
         return y_hat
     
-    def _shared_eval(self, batch, batch_idx, prefix):
+    def _shared_eval(self, batch: Tens, batch_idx: int, prefix: str):
         batch = batch.to(self.device)
         self._defrag()
         
@@ -119,11 +127,11 @@ class SummNet(pl.LightningModule):
         assert y.shape == (B, T - 1)
         assert x.shape == (B, T - 1)
         y_hat = self(x)
-        assert y_hat.shape == (B * (T - 1), self.hparams.vocab_size)
+        assert y_hat.shape == (B * (T - 1), self.vocab_size)
         loss = F.cross_entropy(y_hat, y.reshape(-1))
         self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
-        self.log('train_tokens', self.total_train_tokens)
+        self.logger.log_metrics({'train_tokens': self.total_train_tokens})
         return loss
 
     def _defrag(self):
@@ -135,20 +143,18 @@ class SummNet(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: Dict[str, Tens], batch_idx: int):
         self.total_train_tokens += torch.sum(batch['num_tokens'])
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
     
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch: Dict[str, Tens], batch_idx: int):
         return self._shared_eval(batch['input_ids'], batch_idx, 'val')
 
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch: Dict[str, Tens], batch_idx: int):
         return self._shared_eval(batch['input_ids'], batch_idx, 'test')
 
 
-def generate(model, idx=None, max_new_tokens=100):    
-    if idx == None:
-        idx = torch.zeros( (1, 1), dtype=torch.long, device=model.device )
+def generate(model: pl.LightningModule, idx: Tens, max_new_tokens: int=100):
     idx = idx.to(model.device)
     assert(idx.dim() == 2)
     # Accumulate predicted tokens here. XXX: could just chop off tail of idx instead

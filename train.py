@@ -1,11 +1,14 @@
 import torch
 import pytorch_lightning as pl
+from pytorch_lightning import callbacks as PLCB
+from pytorch_lightning import loggers as PLLG
 
 import text_data
 # from conv_text import ReConvText
 from summ_net import SummNet
+from typing import List, cast
 
-def main(argv):
+def main(argv: List[str]):
     import argparse
     parser = argparse.ArgumentParser(
                         prog='train.py',
@@ -26,14 +29,14 @@ def main(argv):
     parser.add_argument('--embedding-width', type=int, default=1024,
                         help='Embedding width')
     parser.add_argument('--fc-width', type=int, default=1024,
-                        help='Classifier (FC) width')
-    parser.add_argument('--kernel-size', type=int, default=4,
+                        help='Fully-conncted layer width')
+    parser.add_argument('--kernel-size', type=int, default=3,
                         help='Receptive field for convolutions')
-    parser.add_argument('--batch-size', type=int, default=4,
+    parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size')
     parser.add_argument('--max-length', type=int, default=4096,
                         help='Maximum length of input')
-    parser.add_argument('--wavenet-height', type=int, default=13,
+    parser.add_argument('--wavenet-height', type=int, default=11,
                         help='Wavenet height')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')
@@ -52,7 +55,7 @@ def main(argv):
     pl.seed_everything(args.random_seed)
     # saves top-K checkpoints based on "val_loss" metric
     filename_template = "ckpt-k{}-d{}".format(args.kernel_size, args.embedding_width)
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(
+    checkpoint_callback = PLCB.ModelCheckpoint(
         save_top_k=3,
         monitor="val_loss",
         mode="min",
@@ -62,7 +65,7 @@ def main(argv):
     model = None
     if args.checkpoint_restore:
         print("restoring from checkpoint {}".format(args.checkpoint_restore))
-        model = SummNet.load_from_checkpoint(args.checkpoint_restore)
+        model = cast(SummNet,SummNet.load_from_checkpoint(args.checkpoint_restore))
         args.max_length = model.max_length
     else:
         print("creating new model")
@@ -83,7 +86,7 @@ def main(argv):
                          limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
-                         logger=pl.loggers.WandbLogger(
+                         logger=PLLG.WandbLogger(
                              name="microlm",
                              log_model=True,
                             ),
