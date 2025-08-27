@@ -1,5 +1,5 @@
 torch
-datasets
+datasets<4.0.0
 jupyter
 transformers
 zstandard
