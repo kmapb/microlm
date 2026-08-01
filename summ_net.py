@@ -58,18 +58,18 @@ class Residual(nn.Module):
 
 
 class DilationNet(nn.Module):
-    def __init__(self, channels: int, height: int, kernel_size: int):
+    def __init__(self, channels: int, height: int, kernel_size: int=2):
         super(DilationNet, self).__init__()
         self.layers = [ Residual(conv1d_factory(kernel_size, channels, channels, dilation=kernel_size ** h)) for h in range(height) ]
         self.net = nn.Sequential(*self.layers)
         self.height = height
-    
+
     def forward(self, x: Tens):
         return self.net(x)
-    
+
     def convs(self):
         for c in self.layers:
-            yield c
+            yield c.submodule
 
 class SummNet(pl.LightningModule):
     def __init__(self,
@@ -118,7 +118,7 @@ class SummNet(pl.LightningModule):
     def _shared_eval(self, batch: Tens, batch_idx: int, prefix: str):
         batch = batch.to(self.device)
         self._defrag()
-        
+
         B, T = batch.shape
         assert T <= self.max_length
 
@@ -129,12 +129,15 @@ class SummNet(pl.LightningModule):
         y_hat = self(x)
         assert y_hat.shape == (B * (T - 1), self.vocab_size)
         loss = F.cross_entropy(y_hat, y.reshape(-1))
-        self.log(prefix + '_loss', loss, prog_bar=True)
-        self.log('length', 1.0 * T)
-        self.logger.log_metrics({'train_tokens': self.total_train_tokens})
+        if self._trainer is not None:
+            self.log(prefix + '_loss', loss, prog_bar=True)
+            self.log('length', 1.0 * T)
+            self.log('train_tokens', 1.0 * self.total_train_tokens)
         return loss
 
     def _defrag(self):
+        if not torch.cuda.is_available():
+            return
         if dt.datetime.now() - self.gc_time > dt.timedelta(seconds=90):
             util.defrag_cuda_memory()
             torch.cuda.empty_cache()
@@ -144,7 +147,8 @@ class SummNet(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
 
     def training_step(self, batch: Dict[str, Tens], batch_idx: int):
-        self.total_train_tokens += torch.sum(batch['num_tokens'])
+        if 'num_tokens' in batch:
+            self.total_train_tokens += int(torch.sum(torch.as_tensor(batch['num_tokens'])))
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
     
     def validation_step(self, batch: Dict[str, Tens], batch_idx: int):
@@ -161,7 +165,8 @@ def generate(model: pl.LightningModule, idx: Tens, max_new_tokens: int=100):
     preds = idx.clone().to(model.device).squeeze(dim=0)
 
     for _ in range(max_new_tokens):
-        logits = model(idx)[0, -1, :] # Only care about the last prediction
+        # forward() returns (B*T, V); only care about the last prediction
+        logits = model(idx)[-1, :]
         probs = F.softmax(logits, dim=-1)
         pred_y = torch.multinomial(probs, 1)
         preds = torch.cat( (preds, pred_y), 0)

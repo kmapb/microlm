@@ -1,9 +1,10 @@
-torch
-datasets<4.0.0
-jupyter
-transformers
+torch>=2.2
+datasets>=3.0
+transformers>=4.40
+pytorch_lightning>=2.2
 zstandard
-pytorch_lightning
-lightning_transformers
-matplotlib
-wandb
+pytest
+# Optional extras (not needed for training/inference):
+#   wandb       - experiment tracking; enable with `python train.py --wandb`
+#   jupyter     - to run the exploratory notebooks
+#   matplotlib  - plots in the notebooks

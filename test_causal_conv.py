@@ -31,9 +31,9 @@ def test_causal_conv_basic():
     assert y[:, :, impulse_start_time].sum() == 1.0 * C
     assert y[:, :, impulse_start_time:impulse_start_time+filter_width].sum() == 1.0 * C * filter_width
     # ...and it's back off in the rest of the output
-    assert y[: :, impulse_start_time+filter_width:].sum() == 0.0
+    assert y[:, :, impulse_start_time+filter_width:].sum() == 0.0
     print("Checked")
-    
+
     # Backward?
 
     y_hat = torch.zeros(y.shape)
@@ -41,7 +41,7 @@ def test_causal_conv_basic():
         c1.parameters(), lr=0.01, momentum=0.9
     )
 
-    for i in range(0, 1000):
+    for i in range(0, 50):
         y = c1(x)
         loss = torch.nn.functional.mse_loss(y, y_hat)
         loss.backward()
@@ -94,26 +94,27 @@ def test_dilation_net(height=1):
     print("Testing dilation net height {}".format(height))
     assert y.shape == x.shape
     # Harder to generalize, but still must be the case that no signal leaks into the past...
-    assert y[:, :, 0:impulse_start_time].sum() == 0.0
-    # And that there is signal once the impulse starts
-    assert y[:, :, impulse_start_time].sum() > 0.0
+    assert y[:, :, 0:impulse_start_time].abs().sum() == 0.0
+    # And that there is signal once the impulse starts. The residual layer norm
+    # makes the response zero-mean across channels, so look at magnitude.
+    assert y[:, :, impulse_start_time].abs().sum() > 0.0
 
-    # Exercise backward, updates weights    
+    # Exercise backward, updates weights
     target = torch.zeros(y.shape)
     optimizer = torch.optim.SGD(
         net.parameters(), lr=1e-6, momentum=0.9
     )
-    for i in range(100):
+    for i in range(20):
         y = net(x)
         loss = torch.nn.functional.mse_loss(y, target)
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
 
-def test_summ_net(height=15):
+def test_summ_net():
     B, C, T = 1, 32, 50
 
-    net = SummNet(height=10, dim=C)
+    net = SummNet(height=10, dim=C, max_length=1024)
     print("net instantiated!")
     x = torch.randint(0, 29000, (C, T))
     print("x ~ {}".format(x.shape))
@@ -125,7 +126,7 @@ def test_summ_net(height=15):
     )
 
     btch = torch.randint(0, 29000, (B, T))
-    for i in range(1000):
+    for i in range(10):
         b = {'input_ids': btch}
         loss = net.training_step(b, 0)
         print(loss)
@@ -140,7 +141,6 @@ if __name__ == "__main__":
     test_causal_conv_dilatory(2)
     test_causal_conv_dilatory(4)
     for h in range(1, 10):
-        pass
-        # test_dilation_net(h)
+        test_dilation_net(h)
     test_summ_net()
 

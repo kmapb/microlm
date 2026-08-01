@@ -1,7 +1,7 @@
 import torch
 import datasets
 import pytorch_lightning as pl
-from transformers import AutoTokenizer, BertTokenizer, DataCollatorWithPadding, XLNetTokenizer
+from transformers import AutoTokenizer
 from torch.nn.utils.rnn import pad_sequence
 
 TOKENIZER=None
@@ -33,12 +33,16 @@ def encode(s, add_special_tokens=True, truncation=True, max_length=None):
 def decode(t):
     return _tokenizer().decode(t)
 
-# e.g., dataset = load_dataset('the_pile', 'all', split='train', streaming=True)
+# e.g., dataset = load_dataset('Salesforce/wikitext', 'wikitext-103-raw-v1',
+#                              split='train', streaming=True)
+# NB: recent `datasets` releases require fully-namespaced hub ids
+# ('Salesforce/wikitext', not 'wikitext').
 def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_proc=16):
     if streaming:
         ds = datasets.load_dataset(name, config, split=split, streaming=True)
     else:
         ds = datasets.load_dataset(name, config, split=split, streaming=False, num_proc=num_proc)
+    ds = ds.filter(lambda ex: len(ex['text'].strip()) > 0)
     shuf = ds
     if shuffle:
         if streaming:

@@ -85,7 +85,6 @@ class ReConvText(pl.LightningModule):
         return self.head(x)
     
     def _shared_eval(self, batch, batch_idx, prefix):
-        import pdb; pdb.set_trace()
         B, T = batch.shape
         assert B >= 1
         assert T >= 1
@@ -101,8 +100,6 @@ class ReConvText(pl.LightningModule):
         assert y.shape == (B,)
         assert x.shape == (B, T - 1)
         y_hat = self(x)
-        
-        import pdb; pdb.set_trace()
         assert y_hat.shape == (B, self.hparams.vocab_size)
         loss = F.cross_entropy(y_hat, y)
         self.log(prefix + '_loss', loss)

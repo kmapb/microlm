@@ -14,12 +14,13 @@ def main(argv: List[str]):
                         prog='train.py',
                         description='Trains a model on a dataset',
                         epilog='May the odds be ever in your favor.')
-    parser.add_argument('--dataset', type=str, default='bookcorpus',
+    parser.add_argument('--dataset', type=str, default='Salesforce/wikitext',
                         help='Name of Huggingface dataset')
-    parser.add_argument('--dataset-cfg', type=str, default=None,
+    parser.add_argument('--dataset-cfg', type=str, default='wikitext-103-raw-v1',
                         help='Config of Huggingface dataset')
-    parser.add_argument('--streaming', default=True, action='store_false',
-                        help='Download or not?')
+    parser.add_argument('--streaming', default=True,
+                        action=argparse.BooleanOptionalAction,
+                        help='Stream the dataset instead of downloading it')
     parser.add_argument('--max-hours', type=float, default=0.5,
                         help='Maximum number of hours to train')
     parser.add_argument('--max-epochs', type=int, default=2,
@@ -40,8 +41,17 @@ def main(argv: List[str]):
                         help='Wavenet height')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')
-    parser.add_argument('--test-only', type=bool, default=False,
+    parser.add_argument('--test-only', default=False,
+                        action=argparse.BooleanOptionalAction,
                         help='Just test the checkpoint')
+    parser.add_argument('--accelerator', type=str, default='auto',
+                        help="Accelerator: 'auto', 'cpu', 'gpu', ...")
+    parser.add_argument('--max-steps', type=int, default=-1,
+                        help='Maximum number of optimizer steps (-1 = no limit)')
+    parser.add_argument('--wandb', default=False,
+                        action=argparse.BooleanOptionalAction,
+                        help='Log to Weights & Biases (requires wandb installed '
+                             'and configured); defaults to a local CSV logger')
     args = parser.parse_args(argv)
 
     # dataset: 'bookcorpus'
@@ -76,8 +86,17 @@ def main(argv: List[str]):
                         max_length = args.max_length,
                         kernel_size=args.kernel_size)
 
-    trainer = pl.Trainer(accelerator='gpu',
-                         precision='16-mixed',
+    # Mixed precision only pays off on GPU; plain fp32 on CPU.
+    use_gpu = args.accelerator == 'gpu' or (
+        args.accelerator == 'auto' and torch.cuda.is_available())
+    precision = '16-mixed' if use_gpu else '32-true'
+    if args.wandb:
+        logger = PLLG.WandbLogger(name="microlm", log_model=True)
+    else:
+        logger = PLLG.CSVLogger(save_dir="logs", name="microlm")
+
+    trainer = pl.Trainer(accelerator=args.accelerator,
+                         precision=precision,
                          devices=1,
                          max_time={'hours': args.max_hours},
                          callbacks=[checkpoint_callback],
@@ -86,10 +105,8 @@ def main(argv: List[str]):
                          limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
-                         logger=PLLG.WandbLogger(
-                             name="microlm",
-                             log_model=True,
-                            ),
+                         max_steps=args.max_steps,
+                         logger=logger,
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
