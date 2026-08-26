@@ -47,6 +47,32 @@ def test_tokenizer_roundtrip():
     assert text_data.pad_token_id() == 0
 
 
+def test_packed_windows_are_dense():
+    """Packing joins documents with the separator, skips blanks, emits exact
+    fixed-size windows, and drops the final partial buffer."""
+    rows = [{'text': 'a'}, {'text': 'b'}, {'text': ''}, {'text': 'c'}]
+    enc = {'a': [1, 2, 3], 'b': [4, 5, 6, 7, 8], '': [], 'c': [9, 10, 11, 12]}
+
+    windows = list(text_data.PackedWindows(
+        rows, window=4, eos_id=99, encode_fn=lambda t: enc[t]))
+
+    # Stream: 1 2 3 99 | 4 5 6 7 | 8 99 9 10 | (11 12 99 dropped, < 1 window)
+    assert [w['input_ids'].tolist() for w in windows] == \
+        [[1, 2, 3, 99], [4, 5, 6, 7], [8, 99, 9, 10]]
+    assert all(w['num_tokens'] == 4 for w in windows)
+    assert all(w['input_ids'].dtype == torch.long for w in windows)
+
+
+def test_packed_windows_span_documents():
+    """A document longer than the window isn't truncated; it spills across
+    consecutive windows."""
+    rows = [{'text': 'long'}]
+    windows = list(text_data.PackedWindows(
+        rows, window=3, eos_id=99, encode_fn=lambda t: list(range(1, 8))))
+    assert [w['input_ids'].tolist() for w in windows] == \
+        [[1, 2, 3], [4, 5, 6]]  # trailing [7, 99] dropped
+
+
 @pytest.mark.network
 def test_streaming_batches_are_well_formed():
     batch_size, max_length = 4, 128
@@ -55,18 +81,17 @@ def test_streaming_batches_are_well_formed():
         max_length=max_length, batch_size=batch_size)
     loader = dm.data_loader('train')
 
+    pad = text_data.pad_token_id()
     seen = 0
     for batch in loader:
         assert set(batch) == {'input_ids', 'num_tokens'}, \
             f"raw columns leaked through: {sorted(batch)}"
         ids = batch['input_ids']
         assert ids.dtype == torch.long
-        assert ids.shape[0] == batch_size
-        assert ids.shape[1] <= max_length
-        # Short/blank lines are filtered out before they reach a batch slot.
-        assert int(batch['num_tokens'].min()) >= dm.min_tokens
-        # num_tokens is the pre-padding length, so it never exceeds the pad width.
-        assert int(batch['num_tokens'].max()) == ids.shape[1]
+        # Packed windows are dense: exact shape, every slot a real token.
+        assert ids.shape == (batch_size, max_length)
+        assert int((ids == pad).sum()) == 0
+        assert (batch['num_tokens'] == max_length).all()
         assert int(ids.max()) < text_data.vocabulary_size()
         seen += 1
         if seen == 3:

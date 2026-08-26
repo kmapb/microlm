@@ -7,7 +7,6 @@ import torch
 import datasets
 import pytorch_lightning as pl
 from transformers import AutoTokenizer
-from torch.nn.utils.rnn import pad_sequence
 
 TOKENIZER = None
 
@@ -87,11 +86,40 @@ def decode(t):
     return _tokenizer().decode(t)
 
 
-def _source_columns(ds):
-    """Columns to drop once we've tokenized: carrying raw text through the rest
-    of the pipeline just burns memory and dataloader bandwidth. Streaming
-    datasets don't always know their columns up front; None means "keep all"."""
-    return list(ds.column_names) if ds.column_names else None
+class PackedWindows(torch.utils.data.IterableDataset):
+    """Concatenate-and-chunk: tokenize a stream of {'text': ...} rows, join
+    documents with a separator token, and emit dense windows of exactly
+    `window` tokens. No padding ever reaches the model, short rows cost
+    nothing (they just extend the buffer), and long documents span windows
+    instead of being truncated.
+
+    Documents are joined with [SEP] and get no [CLS] -- chat-time prompts
+    don't have one either, so training and inference see the same shape of
+    stream. The final partial buffer of a split is dropped rather than padded.
+
+    `encode_fn` is injectable so the packing logic is testable without the
+    tokenizer (and therefore without the hub).
+    """
+
+    def __init__(self, rows, window, eos_id=None, encode_fn=None):
+        self.rows = rows
+        self.window = window
+        self.eos_id = sep_token_id() if eos_id is None else eos_id
+        self.encode_fn = encode_fn or \
+            (lambda text: tokenize(text, add_special_tokens=False))
+
+    def __iter__(self):
+        buf = []
+        for row in self.rows:
+            ids = self.encode_fn(row['text'])
+            if not ids:  # blank lines contribute nothing, not even a [SEP]
+                continue
+            buf.extend(ids)
+            buf.append(self.eos_id)
+            while len(buf) >= self.window:
+                window, buf = buf[:self.window], buf[self.window:]
+                yield {'input_ids': torch.tensor(window, dtype=torch.long),
+                       'num_tokens': self.window}
 
 
 # e.g., dataset = load_dataset('HuggingFaceFW/fineweb-edu', 'sample-10BT', split='train')
@@ -111,81 +139,25 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_
 
 
 class BasicDataModule(pl.LightningDataModule):
-    def __init__(self, dataset_name, dataset_cfg, max_length=4096, batch_size=8,
-                 num_workers=20, min_tokens=8):
+    def __init__(self, dataset_name, dataset_cfg, max_length=4096, batch_size=8):
         super().__init__()
         self.dataset_name = dataset_name
         self.dataset_cfg = dataset_cfg
         self.max_length = max_length
         self.tokenizer = _tokenizer()
         self.batch_size = batch_size
-        self.num_workers = num_workers
-        # Line-oriented corpora (wikitext especially) are full of blank lines and
-        # section headers that tokenize to a handful of tokens. They cost a full
-        # batch slot and teach nothing, so drop them.
-        self.min_tokens = min_tokens
         self.streaming = False
 
     def data_loader(self, split):
-        cols = ['input_ids', 'num_tokens']
-
-        def encode_truncated(s):
-            t = encode(s,
-                       add_special_tokens=True,
-                       max_length=self.max_length,
-                       truncation=True)
-            return {'input_ids': t['input_ids']}
-
-        def long_enough(s):
-            return len(s['input_ids']) >= self.min_tokens
-
-        def encode_truncated_ds(ds):
-            assert not self.streaming
-            ds = ds.map(encode_truncated, batched=True, num_proc=self.num_workers,
-                        remove_columns=_source_columns(ds))
-            ds = ds.filter(long_enough)
-            ds.set_format(type="torch", columns=cols)
-            return ds
-
-        def collate_batch(batch):
-            longest = 0
-            out_batch = []
-            num_tokens = []
-            for l in batch['input_ids']:
-                num_tokens += [len(l)]
-                if len(l) > longest:
-                    longest = len(l)
-                out_batch.append(torch.tensor(l, dtype=torch.long))
-            seq = pad_sequence(out_batch, batch_first=True, padding_value=pad_token_id())
-            return {'input_ids': seq, 'num_tokens': num_tokens}
-
-        def encode_ds_streaming(ds):
-            # The collate map is doing something slightly sneaky: a batched map
-            # emits len(value) rows, so returning a (B, T) tensor hands back B
-            # rows that are already padded to a common length. Because streaming
-            # preserves order, the DataLoader's batches line up exactly with
-            # these map batches and re-assemble them into (B, T).
-            return ds.map(encode_truncated, batched=True, batch_size=self.batch_size,
-                          remove_columns=_source_columns(ds)). \
-                filter(long_enough). \
-                map(collate_batch, batched=True, batch_size=self.batch_size). \
-                with_format(type="torch")
-
-        def encode_ds(ds):
-            if self.streaming:
-                return encode_ds_streaming(ds)
-            return encode_truncated_ds(ds)
-
-        ds = load_dataset(self.dataset_name, self.dataset_cfg, split=split, streaming=self.streaming)
-        ds = encode_ds(ds)
-        return torch.utils.data.DataLoader(ds, batch_size=self.batch_size)
+        ds = load_dataset(self.dataset_name, self.dataset_cfg, split=split,
+                          streaming=self.streaming)
+        packed = PackedWindows(ds, self.max_length)
+        # Every window is the same dense (max_length,) shape, so default
+        # collation stacks them into (B, max_length). num_workers stays 0:
+        # extra workers would each replay the same stream and duplicate data.
+        return torch.utils.data.DataLoader(packed, batch_size=self.batch_size)
 
     def setup(self, stage=None):
-        if self.streaming:
-            print("Streaming...")
-            self.num_workers = 1
-        else:
-            print("Tokenizing...")
 
         self.train_dataloader_ = self.data_loader('train')
         try:
@@ -213,9 +185,7 @@ class BasicDataModule(pl.LightningDataModule):
 
 
 class StreamingTextDataModule(BasicDataModule):
-    def __init__(self, dataset_name, dataset_cfg, max_length=4096, batch_size=8,
-                 num_workers=20, min_tokens=8):
+    def __init__(self, dataset_name, dataset_cfg, max_length=4096, batch_size=8):
         super().__init__(dataset_name, dataset_cfg, max_length=max_length,
-                         batch_size=batch_size, num_workers=num_workers,
-                         min_tokens=min_tokens)
+                         batch_size=batch_size)
         self.streaming = True
