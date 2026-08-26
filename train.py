@@ -59,6 +59,12 @@ def main(argv: List[str]):
                              'receptive field covers --max-length)')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')
+    parser.add_argument('--lr', type=float, default=3e-4,
+                        help='Peak learning rate')
+    parser.add_argument('--warmup-steps', type=int, default=1000,
+                        help='Linear LR warmup steps')
+    parser.add_argument('--lr-decay-steps', type=int, default=100_000,
+                        help='Steps over which LR cosine-decays to a 10%% floor')
     parser.add_argument('--logger', type=str, default='tensorboard',
                         choices=['tensorboard', 'csv', 'wandb', 'none'],
                         help='Where to send metrics')
@@ -110,12 +116,16 @@ def main(argv: List[str]):
                         height=args.wavenet_height,
                         max_length=args.max_length,
                         kernel_size=args.kernel_size,
-                        pad_token_id=text_data.pad_token_id())
+                        pad_token_id=text_data.pad_token_id(),
+                        lr=args.lr,
+                        warmup_steps=args.warmup_steps,
+                        lr_decay_steps=args.lr_decay_steps)
 
     trainer = pl.Trainer(accelerator='auto',
                          precision='16-mixed' if torch.cuda.is_available() else '32-true',
                          devices=1,
                          max_time={'hours': args.max_hours},
+                         gradient_clip_val=1.0,
                          callbacks=[checkpoint_callback],
                          val_check_interval=val_check_interval,
                          log_every_n_steps=100,

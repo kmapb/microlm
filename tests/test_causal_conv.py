@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from summ_net import CausalConv1d, DilationNet, SummNet
@@ -166,10 +167,32 @@ def test_height_derived_from_context():
 
 
 def test_height_overshoot_warns():
-    import pytest
     with pytest.warns(UserWarning, match='overshoots'):
         SummNet(vocab_size=64, dim=8, fc_dim=16, max_length=64, kernel_size=2,
                 height=12)
+
+
+def test_lr_schedule_warmup_and_decay():
+    peak, warmup, decay = 1e-3, 10, 100
+    net = SummNet(vocab_size=64, dim=8, fc_dim=16, max_length=64, kernel_size=2,
+                  lr=peak, warmup_steps=warmup, lr_decay_steps=decay)
+    cfg = net.configure_optimizers()
+    opt = cfg['optimizer']
+    assert cfg['lr_scheduler']['interval'] == 'step'
+    sched = cfg['lr_scheduler']['scheduler']
+
+    lrs = []
+    for _ in range(decay + 20):
+        lrs.append(opt.param_groups[0]['lr'])
+        opt.step()
+        sched.step()
+
+    assert lrs[0] == pytest.approx(peak / warmup)   # warmup starts low...
+    assert lrs[warmup - 1] == pytest.approx(peak)   # ...tops out at the peak...
+    assert max(lrs) == pytest.approx(peak)          # ...and never exceeds it.
+    assert lrs[-1] == pytest.approx(0.1 * peak)     # cosine lands on the floor.
+    assert all(a >= b for a, b in zip(lrs[warmup:], lrs[warmup + 1:])), \
+        "decay phase should be monotonic"
 
 
 def test_loss_ignores_padding():

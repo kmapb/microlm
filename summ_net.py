@@ -82,7 +82,10 @@ class SummNet(pl.LightningModule):
                  height: Optional[int]=None,
                  max_length: int=2**20,
                  kernel_size: int=4,
-                 pad_token_id: int=0):
+                 pad_token_id: int=0,
+                 lr: float=3e-4,
+                 warmup_steps: int=1000,
+                 lr_decay_steps: int=100_000):
         # Layer h has dilation kernel_size**h, so a stack of H layers sees
         # kernel_size**H tokens back. Deriving H from max_length (the default)
         # gives the smallest stack that covers the whole context; anything
@@ -168,7 +171,24 @@ class SummNet(pl.LightningModule):
             self.gc_time = dt.datetime.now()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
+        opt = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr,
+                                weight_decay=1e-2)
+
+        # Explicit decay horizon rather than trainer.estimated_stepping_batches:
+        # streaming datasets have no length, so Lightning can't estimate one.
+        warmup = max(1, self.hparams.warmup_steps)
+        decay = max(warmup + 1, self.hparams.lr_decay_steps)
+
+        def lr_factor(step: int):
+            if step < warmup:
+                return (step + 1) / warmup
+            progress = min(1.0, (step - warmup) / (decay - warmup))
+            # Cosine from the peak down to a 10% floor, then hold.
+            return 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_factor)
+        return {'optimizer': opt,
+                'lr_scheduler': {'scheduler': sched, 'interval': 'step'}}
 
     def training_step(self, batch: Dict[str, Tens], batch_idx: int):
         # int(), not the raw tensor: keeps the counter off the GPU and keeps it
