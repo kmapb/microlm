@@ -1,68 +1,38 @@
 # TODO: training-quality fixes
 
 Five defects found in review (2026-08-26), roughly in order of expected impact
-on model quality. Each one caps quality on its own; together they go a long way
-toward explaining disappointing samples from otherwise-healthy training runs.
+on model quality. **All five are now fixed** (see the `Fix N/5:` commits);
+checkpoints from before that series were trained against a different objective
+and aren't comparable. What each was:
 
-## 1. LeakyReLU on the output logits
+1. **LeakyReLU on the output logits** -- the head fed cross-entropy activations
+   with the negative half squashed 100x, so the model could never confidently
+   rule a token out. Fixed: the final Linear's output is the logits, no
+   activation (also in the legacy `token_rnn.py` / `conv_text.py`).
+2. **Loss computed over padding** -- every position after a document's end
+   taught "predict [PAD]". Fixed: `pad_token_id` is a SummNet hparam used as
+   `ignore_index`, making the loss a per-real-token mean. (Mostly moot now
+   that batches are packed, but it guards any padded path.)
+3. **lr=1e-5, constant** -- a fine-tuning rate for a from-scratch model.
+   Fixed: peak `--lr` 3e-4, linear `--warmup-steps`, cosine decay to a 10%
+   floor over `--lr-decay-steps`, `gradient_clip_val=1.0`.
+4. **No sequence packing** -- rows tokenized/padded individually, so training
+   was mostly short contexts and pad slots. Fixed: `PackedWindows` joins
+   documents with `[SEP]` and emits dense fixed-`max_length` windows; zero
+   padding, and no more `[CLS]` train/inference mismatch with `chat.py`.
+5. **Receptive field vastly exceeding the context** -- k=3/height=11 put the
+   top layers' dilations past 4096; they convolved only left-padding. Fixed:
+   height defaults to the smallest stack covering `max_length` (8 for the
+   defaults); explicit overshoots warn.
 
-`SummNet.head` ends `Linear(fc_dim, vocab) -> LeakyReLU()`, and that output goes
-straight into `F.cross_entropy`. Cross-entropy expects unbounded logits;
-LeakyReLU compresses all negative logits by 100x, so the model can never
-confidently rule tokens *out* and the predictive distribution stays mushy no
-matter how long it trains.
-
-**Fix:** drop the trailing `LeakyReLU` from the head (the same bug exists in
-`token_rnn.py` and `conv_text.py`). Note: removing it breaks checkpoint
-compatibility in spirit if not in shape -- old checkpoints were trained to a
-different objective geometry.
-
-## 2. Loss is computed over padding
-
-`collate_batch` pads ragged documents with `pad_token_id`, and the
-`cross_entropy` call in `SummNet._shared_eval` has no `ignore_index`. Every
-position after a document's `[SEP]` teaches the model "predict `[PAD]`", which
-can be a large fraction of the gradient, and it deflates the logged loss.
-
-**Fix:** `F.cross_entropy(..., ignore_index=pad_token_id)`; also log loss per
-*real* token so train/val numbers are comparable across batches. Largely
-subsumed by #4, but worth doing anyway for any padded path that remains.
-
-## 3. Learning rate is ~30x too low, with no schedule
-
-`configure_optimizers` returns AdamW at a constant `lr=1e-5` -- a fine-tuning
-rate, not a from-scratch rate. No warmup, no decay, no gradient clipping.
-
-**Fix:** peak lr ~3e-4 with linear warmup (~1-2k steps) and cosine decay;
-`gradient_clip_val=1.0` on the Trainer. Expose peak lr and warmup as CLI args.
-
-## 4. No sequence packing
-
-Each dataset row is tokenized and padded individually, so line-oriented corpora
-train the 4096-context WaveNet almost entirely on short sequences, and most of
-each batch is padding. Compute goes to waste and long-range structure is never
-learned.
-
-**Fix:** concatenate-and-chunk -- tokenize the stream, join documents with
-`[SEP]`, and emit fixed `max_length` windows with no padding at all. This also
-eliminates the pad-loss issue (#2) on the packed path, and replaces the fragile
-map/DataLoader batch-alignment trick in `text_data.py`.
-
-## 5. Receptive field vastly exceeds the context
-
-Dilations grow as `kernel_size ** h`; with the default k=3, height=11 the top
-layers have dilation >> 4096, so they convolve almost pure left-padding.
-Wasted parameters and compute.
-
-**Fix:** cap the effective height so the receptive field just covers
-`max_length` (for k=3, T=4096 that's height 8), either by validating the
-height/kernel/length combination at construction or by deriving height from
-`max_length` when unspecified.
-
-## Worth doing while in there (not part of the five)
+## Still worth doing
 
 - WaveNet-style gated activations (GLU / tanh x sigmoid) instead of LeakyReLU
   inside the residual blocks, and skip-connection aggregation into the head.
 - Tie the embedding and output projection weights.
-- Prompt encoding in `chat.py` omits `[CLS]`, but training always prepends it:
-  every prompt is out-of-distribution.
+- A real long run to re-baseline: wikitext-103, compare against GCNN-8 (44.9
+  test PPL) / TCN-class numbers. Note `test_loss` is now nats/token over
+  packed windows; ppl = exp(loss).
+- Tokenizing in the training process is the only data-path worker now; if the
+  GPU starves on a big run, move `PackedWindows` behind a worker or pre-pack
+  to disk.
