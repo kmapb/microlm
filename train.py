@@ -1,5 +1,6 @@
 import paths  # noqa: F401  -- sets cache locations; must precede datasets/transformers
 
+import os
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning import callbacks as PLCB
@@ -11,11 +12,19 @@ from summ_net import SummNet
 from typing import List, cast
 
 
-def make_logger(kind: str):
-    """Loggers, cheapest-to-set-up first. wandb needs a login, so it isn't the
-    default any more -- ask for it explicitly."""
+# The shared tracking server; auth is handled at the network perimeter.
+MLFLOW_URI = os.environ.get('MLFLOW_TRACKING_URI', 'https://mlflow.pbd.vc')
+
+
+def make_logger(kind: str, run_name: str = None):
+    """mlflow (the shared server) is the default; the others are for offline
+    boxes and quick local runs. wandb needs a login -- ask for it explicitly."""
     if kind == 'none':
         return False
+    if kind == 'mlflow':
+        return PLLG.MLFlowLogger(experiment_name="microlm",
+                                 run_name=run_name,
+                                 tracking_uri=MLFLOW_URI)
     if kind == 'tensorboard':
         return PLLG.TensorBoardLogger(save_dir=str(paths.LOG_DIR), name="microlm")
     if kind == 'csv':
@@ -65,8 +74,8 @@ def main(argv: List[str]):
                         help='Linear LR warmup steps')
     parser.add_argument('--lr-decay-steps', type=int, default=100_000,
                         help='Steps over which LR cosine-decays to a 10%% floor')
-    parser.add_argument('--logger', type=str, default='tensorboard',
-                        choices=['tensorboard', 'csv', 'wandb', 'none'],
+    parser.add_argument('--logger', type=str, default='mlflow',
+                        choices=['mlflow', 'tensorboard', 'csv', 'wandb', 'none'],
                         help='Where to send metrics')
     parser.add_argument('--limit-train-batches', type=int, default=None,
                         help='Cap training batches per epoch (handy for smoke tests)')
@@ -133,7 +142,8 @@ def main(argv: List[str]):
                          limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
-                         logger=make_logger(args.logger),
+                         logger=make_logger(args.logger,
+                                            run_name=filename_template),
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule

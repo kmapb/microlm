@@ -27,6 +27,13 @@ and aren't comparable. What each was:
 
 ## Still worth doing
 
+- `chat.py`'s HF GenerationMixin shim no longer survives modern transformers
+  (cache prep wants a real model config: `num_hidden_layers` etc.). A plain
+  top-k/top-p sampling loop over `SummNet.forward` is ~15 lines and drops the
+  transformers surface entirely.
+- Log a few fixed-prompt samples at each validation pass (to MLflow) so
+  subjective quality is visible per checkpoint without manual sampling.
+
 - WaveNet-style gated activations (GLU / tanh x sigmoid) instead of LeakyReLU
   inside the residual blocks, and skip-connection aggregation into the head.
 - Tie the embedding and output projection weights.
