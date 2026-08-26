@@ -14,9 +14,8 @@ class TokenRNNLM(nn.Module):
           nn.LayerNorm((embedding_width + hidden_size)),
           nn.Linear(embedding_width + hidden_size, hidden_size),
           nn.LeakyReLU())
-        self.i2o = nn.Sequential(
-          nn.Linear(embedding_width + hidden_size, vocab_size),
-          nn.LeakyReLU())
+        # Logits head: no activation, cross-entropy wants unbounded values.
+        self.i2o = nn.Linear(embedding_width + hidden_size, vocab_size)
 
     def forward(self, idx, hidden=None, targets=None):
         assert(idx.dim() == 2)

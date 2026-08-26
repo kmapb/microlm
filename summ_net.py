@@ -90,11 +90,13 @@ class SummNet(pl.LightningModule):
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
         self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
         self.filter_bank = DilationNet(dim, height, kernel_size)
+        # No activation after the final Linear: cross-entropy wants unbounded
+        # logits, and squashing the negative half keeps the model from ever
+        # confidently ruling a token out.
         self.head = nn.Sequential(
             nn.Linear(dim, fc_dim),
             nn.LeakyReLU(),
             nn.Linear(fc_dim, vocab_size),
-            nn.LeakyReLU(),
         )
         self.gc_time = dt.datetime.now()
 

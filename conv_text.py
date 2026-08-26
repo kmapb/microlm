@@ -68,8 +68,8 @@ class ReConvText(pl.LightningModule):
             nn.LeakyReLU(),
             # nn.Dropout(),
             # nn.LayerNorm(fc_dim),
+            # Logits: no activation, cross-entropy wants unbounded values.
             nn.Linear(fc_dim, vocab_size),
-            nn.LeakyReLU(),
         )
 
     def forward(self, xi, _=None):    
