@@ -78,7 +78,8 @@ class SummNet(pl.LightningModule):
                  fc_dim: int=1024,
                  height: int=10,
                  max_length: int=2**20,
-                 kernel_size: int=4):
+                 kernel_size: int=4,
+                 pad_token_id: int=0):
         super(SummNet, self).__init__()
         self.save_hyperparameters()
         self.vocab_size = vocab_size
@@ -130,7 +131,12 @@ class SummNet(pl.LightningModule):
         assert x.shape == (B, T - 1)
         y_hat = self(x)
         assert y_hat.shape == (B * (T - 1), self.vocab_size)
-        loss = F.cross_entropy(y_hat, y.reshape(-1))
+        # ignore_index: every position after a document's end is a pad target,
+        # and without this the model spends gradient learning to predict [PAD].
+        # The mean is then over real tokens only, so losses stay comparable
+        # across batches with different amounts of padding.
+        loss = F.cross_entropy(y_hat, y.reshape(-1),
+                               ignore_index=self.hparams.pad_token_id)
         self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
         # A running total, not something to average over the epoch -- hence

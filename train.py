@@ -108,7 +108,8 @@ def main(argv: List[str]):
                         fc_dim=args.fc_width,
                         height=args.wavenet_height,
                         max_length=args.max_length,
-                        kernel_size=args.kernel_size)
+                        kernel_size=args.kernel_size,
+                        pad_token_id=text_data.pad_token_id())
 
     trainer = pl.Trainer(accelerator='auto',
                          precision='16-mixed' if torch.cuda.is_available() else '32-true',

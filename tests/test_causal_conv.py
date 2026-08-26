@@ -152,3 +152,24 @@ def test_summ_net_trains():
     assert losses[-1] < losses[0], f"loss did not improve: {losses[0]} -> {losses[-1]}"
     # It counted every token it saw, once per step.
     assert net.total_train_tokens == B * T * len(losses)
+
+
+def test_loss_ignores_padding():
+    """Pad targets carry no gradient: the loss on a right-padded sequence must
+    equal the loss on just its real prefix. (Causality guarantees the shared
+    positions see identical predictions, so any difference is pad leakage.)"""
+    V, T, PAD = 128, 12, 0
+    real_len = 6
+
+    torch.manual_seed(0)
+    net = SummNet(vocab_size=V, dim=8, fc_dim=16, height=2, max_length=T,
+                  kernel_size=2, pad_token_id=PAD)
+    net.eval()
+
+    real = torch.randint(1, V, (1, real_len))
+    padded = torch.cat((real, torch.full((1, T - real_len), PAD)), dim=1)
+
+    with torch.no_grad():
+        loss_padded = net._shared_eval(padded, 0, 'test')
+        loss_prefix = net._shared_eval(real, 0, 'test')
+    torch.testing.assert_close(loss_padded, loss_prefix)
