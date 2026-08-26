@@ -54,8 +54,9 @@ def main(argv: List[str]):
                         help='Batch size')
     parser.add_argument('--max-length', type=int, default=4096,
                         help='Maximum length of input')
-    parser.add_argument('--wavenet-height', type=int, default=11,
-                        help='Wavenet height')
+    parser.add_argument('--wavenet-height', type=int, default=None,
+                        help='Wavenet height (default: smallest stack whose '
+                             'receptive field covers --max-length)')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')
     parser.add_argument('--logger', type=str, default='tensorboard',

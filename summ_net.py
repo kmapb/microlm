@@ -1,10 +1,13 @@
+import math
+import warnings
+
 import torch
 from torch import nn
 from torch import Tensor as Tens
 from torch.nn import functional as F
 import pytorch_lightning as pl
 import util
-from typing import cast, Dict
+from typing import cast, Dict, Optional
 import datetime as dt
 
 __CUDA__ = torch.cuda.is_available()
@@ -76,17 +79,29 @@ class SummNet(pl.LightningModule):
                  vocab_size: int=29000,
                  dim: int=384,
                  fc_dim: int=1024,
-                 height: int=10,
+                 height: Optional[int]=None,
                  max_length: int=2**20,
                  kernel_size: int=4,
                  pad_token_id: int=0):
+        # Layer h has dilation kernel_size**h, so a stack of H layers sees
+        # kernel_size**H tokens back. Deriving H from max_length (the default)
+        # gives the smallest stack that covers the whole context; anything
+        # taller convolves nothing but left-padding.
+        if height is None:
+            height = max(1, math.ceil(math.log(max_length, kernel_size)))
+        elif kernel_size ** (height - 1) >= max_length:
+            warnings.warn(
+                f"height={height} overshoots: with kernel_size={kernel_size} "
+                f"the top layer's dilation ({kernel_size ** (height - 1)}) is >= "
+                f"max_length ({max_length}), so its long-range taps only ever "
+                f"see padding. height={math.ceil(math.log(max_length, kernel_size))} "
+                "already covers the context.")
         super(SummNet, self).__init__()
         self.save_hyperparameters()
         self.vocab_size = vocab_size
         self.dim = dim
         self.max_length = max_length
         self.total_train_tokens = 0
-        self.save_hyperparameters()
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
         self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))

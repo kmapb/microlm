@@ -154,6 +154,24 @@ def test_summ_net_trains():
     assert net.total_train_tokens == B * T * len(losses)
 
 
+def test_height_derived_from_context():
+    """Default height is the smallest stack whose receptive field
+    (kernel_size ** height) covers max_length."""
+    net = SummNet(vocab_size=64, dim=8, fc_dim=16, max_length=512, kernel_size=2)
+    assert net.filter_bank.height == 9  # 2**9 == 512
+    net = SummNet(vocab_size=64, dim=8, fc_dim=16, max_length=4096, kernel_size=3)
+    assert net.filter_bank.height == 8  # 3**8 == 6561 >= 4096 > 3**7
+    # The derived value lands in hparams, so checkpoints round-trip concretely.
+    assert net.hparams.height == 8
+
+
+def test_height_overshoot_warns():
+    import pytest
+    with pytest.warns(UserWarning, match='overshoots'):
+        SummNet(vocab_size=64, dim=8, fc_dim=16, max_length=64, kernel_size=2,
+                height=12)
+
+
 def test_loss_ignores_padding():
     """Pad targets carry no gradient: the loss on a right-padded sequence must
     equal the loss on just its real prefix. (Causality guarantees the shared
