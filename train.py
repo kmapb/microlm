@@ -1,3 +1,5 @@
+import paths  # noqa: F401  -- sets cache locations; must precede datasets/transformers
+
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning import callbacks as PLCB
@@ -8,18 +10,34 @@ import text_data
 from summ_net import SummNet
 from typing import List, cast
 
+
+def make_logger(kind: str):
+    """Loggers, cheapest-to-set-up first. wandb needs a login, so it isn't the
+    default any more -- ask for it explicitly."""
+    if kind == 'none':
+        return False
+    if kind == 'tensorboard':
+        return PLLG.TensorBoardLogger(save_dir=str(paths.LOG_DIR), name="microlm")
+    if kind == 'csv':
+        return PLLG.CSVLogger(save_dir=str(paths.LOG_DIR), name="microlm")
+    if kind == 'wandb':
+        return PLLG.WandbLogger(name="microlm", save_dir=str(paths.LOG_DIR), log_model=True)
+    raise ValueError(f"unknown logger {kind!r}")
+
+
 def main(argv: List[str]):
     import argparse
     parser = argparse.ArgumentParser(
                         prog='train.py',
                         description='Trains a model on a dataset',
                         epilog='May the odds be ever in your favor.')
-    parser.add_argument('--dataset', type=str, default='bookcorpus',
+    parser.add_argument('--dataset', type=str, default='Salesforce/wikitext',
                         help='Name of Huggingface dataset')
-    parser.add_argument('--dataset-cfg', type=str, default=None,
+    parser.add_argument('--dataset-cfg', type=str, default='wikitext-103-raw-v1',
                         help='Config of Huggingface dataset')
-    parser.add_argument('--streaming', default=True, action='store_false',
-                        help='Download or not?')
+    parser.add_argument('--streaming', default=True,
+                        action=argparse.BooleanOptionalAction,
+                        help='Stream the dataset instead of downloading it first')
     parser.add_argument('--max-hours', type=float, default=0.5,
                         help='Maximum number of hours to train')
     parser.add_argument('--max-epochs', type=int, default=2,
@@ -40,15 +58,31 @@ def main(argv: List[str]):
                         help='Wavenet height')
     parser.add_argument('--random-seed', type=int, default=22707,
                         help='Random seed')
-    parser.add_argument('--test-only', type=bool, default=False,
+    parser.add_argument('--logger', type=str, default='tensorboard',
+                        choices=['tensorboard', 'csv', 'wandb', 'none'],
+                        help='Where to send metrics')
+    parser.add_argument('--limit-train-batches', type=int, default=None,
+                        help='Cap training batches per epoch (handy for smoke tests)')
+    parser.add_argument('--val-check-interval', type=int, default=1000,
+                        help='Training batches between validation passes')
+    parser.add_argument('--test-only', action='store_true',
                         help='Just test the checkpoint')
     args = parser.parse_args(argv)
 
-    # dataset: 'bookcorpus'
-    # dataset: 'the_pile', dataset_cfg: 'all'
-    # dataset: 'wikitext', dataset_cfg: 'wikitext-2-v1', # quick test
-    # dataset: 'wikitext', dataset_cfg: 'wikitext-103-v1',
-    # dataset: 'c4', 'dataset_cfg': 'en',
+    # dataset: 'Salesforce/wikitext', dataset_cfg: 'wikitext-2-raw-v1', # quick test
+    # dataset: 'Salesforce/wikitext', dataset_cfg: 'wikitext-103-raw-v1',
+    # dataset: 'HuggingFaceFW/fineweb-edu', dataset_cfg: 'sample-10BT',
+    # dataset: 'allenai/c4', dataset_cfg: 'en',
+
+    paths.ensure_dirs()
+    print("microlm paths:")
+    print(paths.describe())
+
+    # Lightning refuses to start if it would never reach a validation pass, which
+    # is exactly what happens on a short --limit-train-batches run.
+    val_check_interval = args.val_check_interval
+    if args.limit_train_batches is not None:
+        val_check_interval = min(val_check_interval, args.limit_train_batches)
 
     # Allow the hardware to use mixed precision
     torch.set_float32_matmul_precision('medium')
@@ -59,37 +93,35 @@ def main(argv: List[str]):
         save_top_k=3,
         monitor="val_loss",
         mode="min",
-        dirpath="./val_ckpts",
+        dirpath=str(paths.CHECKPOINT_DIR),
         filename=filename_template + "-{val_loss:.2f}"
     )
     model = None
     if args.checkpoint_restore:
         print("restoring from checkpoint {}".format(args.checkpoint_restore))
-        model = cast(SummNet,SummNet.load_from_checkpoint(args.checkpoint_restore))
+        model = cast(SummNet, SummNet.load_from_checkpoint(args.checkpoint_restore))
         args.max_length = model.max_length
     else:
         print("creating new model")
         model = SummNet(text_data.vocabulary_size(),
-                        dim = args.embedding_width,
-                        fc_dim = args.fc_width,
-                        height = args.wavenet_height,
-                        max_length = args.max_length,
+                        dim=args.embedding_width,
+                        fc_dim=args.fc_width,
+                        height=args.wavenet_height,
+                        max_length=args.max_length,
                         kernel_size=args.kernel_size)
 
-    trainer = pl.Trainer(accelerator='gpu',
-                         precision='16-mixed',
+    trainer = pl.Trainer(accelerator='auto',
+                         precision='16-mixed' if torch.cuda.is_available() else '32-true',
                          devices=1,
                          max_time={'hours': args.max_hours},
                          callbacks=[checkpoint_callback],
-                         val_check_interval=1000,
+                         val_check_interval=val_check_interval,
                          log_every_n_steps=100,
+                         limit_train_batches=args.limit_train_batches,
                          limit_val_batches=337,
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
-                         logger=PLLG.WandbLogger(
-                             name="microlm",
-                             log_model=True,
-                            ),
+                         logger=make_logger(args.logger),
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
@@ -98,9 +130,13 @@ def main(argv: List[str]):
                         batch_size=args.batch_size)
     if not args.test_only:
         trainer.fit(model, dm, ckpt_path=args.checkpoint_restore)
-        trainer.save_checkpoint('full-run-d{}-h{}.ckpt'.format(args.embedding_width, args.kernel_size))
+        final = paths.OUTPUT_ROOT / 'full-run-d{}-h{}.ckpt'.format(
+            args.embedding_width, args.kernel_size)
+        trainer.save_checkpoint(str(final))
+        print("wrote {}".format(final))
     trainer.test(model, dm)
-    
+
+
 if __name__ == "__main__":
     import sys
     main(sys.argv[1:])

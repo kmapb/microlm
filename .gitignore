@@ -1,4 +1,4 @@
-__pycache__/*
+__pycache__/
 .vscode/*
 *.pt
 .venv/*
@@ -10,4 +10,5 @@ interesting_checkpoints/*
 data/*
 juice.log
 wandb/*
+runs/
 

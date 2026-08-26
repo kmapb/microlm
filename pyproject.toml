@@ -1,0 +1,40 @@
+[project]
+name = "microlm"
+version = "0.1.0"
+description = "A very smol language model built on stacked, dilated causal convolutions (WaveNet-style)."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "torch>=2.7",
+    "datasets>=4.0",
+    "transformers>=4.44",
+    "pytorch-lightning>=2.4",
+    "matplotlib>=3.9",
+    "tensorboard>=2.17",
+    "zstandard>=0.22",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+notebooks = [
+    "jupyter>=1.1",
+    "ipykernel>=6.29",
+]
+wandb = [
+    "wandb>=0.18",
+]
+
+[tool.uv]
+# A flat script-style repo, not an installable library: don't try to build it.
+package = false
+# `uv sync` installs these by default; drop with `--no-group`.
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "network: needs the HuggingFace hub (or a warm cache on the datasettes mount)",
+]

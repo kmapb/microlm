@@ -131,7 +131,11 @@ class SummNet(pl.LightningModule):
         loss = F.cross_entropy(y_hat, y.reshape(-1))
         self.log(prefix + '_loss', loss, prog_bar=True)
         self.log('length', 1.0 * T)
-        self.logger.log_metrics({'train_tokens': self.total_train_tokens})
+        # A running total, not something to average over the epoch -- hence
+        # log_metrics rather than self.log. There isn't always a logger to talk
+        # to (bare training_step calls in tests, `--logger none`).
+        if self.logger is not None:
+            self.logger.log_metrics({'train_tokens': self.total_train_tokens})
         return loss
 
     def _defrag(self):
@@ -144,7 +148,9 @@ class SummNet(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=1e-5, weight_decay=1e-2)
 
     def training_step(self, batch: Dict[str, Tens], batch_idx: int):
-        self.total_train_tokens += torch.sum(batch['num_tokens'])
+        # int(), not the raw tensor: keeps the counter off the GPU and keeps it
+        # a plain scalar the loggers can serialize.
+        self.total_train_tokens += int(torch.sum(batch['num_tokens']))
         return self._shared_eval(batch['input_ids'], batch_idx, 'train')
     
     def validation_step(self, batch: Dict[str, Tens], batch_idx: int):
@@ -161,7 +167,10 @@ def generate(model: pl.LightningModule, idx: Tens, max_new_tokens: int=100):
     preds = idx.clone().to(model.device).squeeze(dim=0)
 
     for _ in range(max_new_tokens):
-        logits = model(idx)[0, -1, :] # Only care about the last prediction
+        # forward() returns (B*T, V), flat in time -- so with B == 1 the last
+        # row is the prediction for the next token. (Indexing this as if it were
+        # (B, T, V) raises IndexError.)
+        logits = model(idx)[-1, :]  # Only care about the last prediction
         probs = F.softmax(logits, dim=-1)
         pred_y = torch.multinomial(probs, 1)
         preds = torch.cat( (preds, pred_y), 0)
