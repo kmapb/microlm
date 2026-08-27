@@ -176,13 +176,20 @@ class SummNet(pl.LightningModule):
         self.dim = dim
         self.max_length = max_length
         self.total_train_tokens = 0
-        # Embed(B, T) -> (B, C, T)
-        self.token_embedding_table = nn.Embedding(vocab_size, dim)
-        self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
         # 'v1' is the pre-2026-08-27 architecture; checkpoints saved before
         # the arch hparam existed default to it and keep loading.
-        assert arch in ('v1', 'v2'), f"unknown arch {arch!r}"
-        if arch == 'v2':
+        assert arch in ('v1', 'v2', 'v3'), f"unknown arch {arch!r}"
+        # Embed(B, T) -> (B, C, T)
+        self.token_embedding_table = nn.Embedding(vocab_size, dim)
+        if arch == 'v3':
+            # No positional embedding: convolutions are translation-equivariant,
+            # so the kernel structure already encodes relative position, and
+            # packed windows make absolute position-in-window arbitrary anyway.
+            # Also frees inference from the max_length cap.
+            self.pos_embedding = None
+        else:
+            self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
+        if arch in ('v2', 'v3'):
             self.filter_bank = GatedDilationNet(dim, height, kernel_size)
         else:
             self.filter_bank = DilationNet(dim, height, kernel_size)
@@ -194,7 +201,7 @@ class SummNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(fc_dim, vocab_size),
         )
-        if arch == 'v2':
+        if arch in ('v2', 'v3'):
             # Weight tying pays for the wider gated convs; needs fc_dim == dim
             # so the tied matrix has the embedding's (vocab, dim) shape.
             assert fc_dim == dim, "weight tying requires fc_dim == dim"
@@ -210,8 +217,11 @@ class SummNet(pl.LightningModule):
         x = self.token_embedding_table(xi).transpose(1, 2)
         B, C, T = x.shape
 
-        assert T <= self.max_length
-        x = x + self.pos_embedding[:, :T]
+        if self.pos_embedding is not None:
+            # Absolute PE hard-limits sequence length; without it (v3) any
+            # length the receptive field can use is fine.
+            assert T <= self.max_length
+            x = x + self.pos_embedding[:, :T]
         filt = self.filter_bank(x)
         assert filt.shape == x.shape
         ## Segregate time channels by bouncing B,T into the 0'th dimension

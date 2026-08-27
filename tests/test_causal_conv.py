@@ -155,17 +155,18 @@ def test_summ_net_trains():
     assert net.total_train_tokens == B * T * len(losses)
 
 
-def _make_v2(V=256, C=16, T=32):
+def _make_v2(V=256, C=16, T=32, arch='v2'):
     return SummNet(vocab_size=V, dim=C, fc_dim=C, height=3, max_length=T,
-                   kernel_size=2, arch='v2')
+                   kernel_size=2, arch=arch)
 
 
-def test_v2_is_causal():
+@pytest.mark.parametrize('arch', ['v2', 'v3'])
+def test_v2_is_causal(arch):
     """Two inputs identical up to position t must produce identical
     predictions before t -- the functional causality test, covering the
     gated convs, pre-norm residuals, and skip aggregation together."""
     V, C, T, t = 256, 16, 32, 20
-    net = _make_v2(V, C, T)
+    net = _make_v2(V, C, T, arch=arch)
     net.eval()
 
     torch.manual_seed(1)
@@ -212,6 +213,18 @@ def test_v2_param_count_near_v1():
                             if p.requires_grad)
     v1, v2 = count(SummNet(arch='v1', **kwargs)), count(SummNet(arch='v2', **kwargs))
     assert abs(v2 - v1) / v1 < 0.35, f"v1={v1} v2={v2}"
+
+
+def test_v3_has_no_pos_embedding_and_no_length_cap():
+    """v3 drops the positional embedding entirely; translation equivariance
+    means it can also run past max_length at inference."""
+    net = _make_v2(arch='v3')
+    assert net.pos_embedding is None
+    net.eval()
+    x = torch.randint(0, 256, (1, 64))  # 2x the training max_length
+    with torch.no_grad():
+        y = net(x)
+    assert y.shape == (64, 256)
 
 
 def test_height_derived_from_context():
