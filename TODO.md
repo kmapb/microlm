@@ -27,8 +27,9 @@ and aren't comparable. What each was:
 
 ## Proposed: gated blocks + skip aggregation (arch v2)
 
-Design agreed 2026-08-27; not yet implemented. Three changes that land as one
-new architecture (`arch='v2'` hparam; absent-key default `'v1'` keeps old
+Implemented 2026-08-27 (`Arch v2:` commit, plus the tied-init fix); the
+controlled fineweb run is in flight. Three changes that land as one new
+architecture (`arch='v2'` hparam; absent-key default `'v1'` keeps old
 checkpoints loading):
 
 1. **GLU gating** (Dauphin et al. 2017). Replace each block's
@@ -54,6 +55,35 @@ stays fair at the same 1.8B-token budget.
 Controlled experiment: identical recipe (3e-4, warmup 1k, cosine to floor at
 55k steps, fineweb-edu sample-10BT, single pass), same MLflow experiment;
 readout is val/test delta vs fineweb-edu-k3-d1024's 4.073/4.082.
+
+## Scaling to ~1B (planned 2026-08-27)
+
+Two work items that gate a ~1B-param run, in order:
+
+1. **Data-path throughput first.** Current runs sit at ~20-50% GPU util
+   because a single in-process tokenizer feeds the A100. Before any longer
+   run, fix the input pipeline: either (a) pre-tokenize once to a
+   memory-mapped uint16 token file on the datasettes mount (~2 bytes/token,
+   so 20B tokens = 40GB; training then reads dense windows with zero
+   tokenization cost -- simplest and probably best), or (b) proper
+   multi-worker loading with per-worker stream shards. Target: >90% util.
+   Assume this lands before sizing the big run's wall-clock.
+
+2. **Hyperparameter autoresearch for the ~1B parameterization.** Questions
+   to settle with a small scaling ladder (e.g. 94M -> 250M -> 1B) rather
+   than vibes: deeper vs wider vs both; whether to adopt *repeated dilation
+   cycles* (WaveNet-style: dilations 1..k^8 repeated x2-3) so depth can grow
+   without the receptive field exploding past useful context; context length
+   (8k? 16k?); LR scaling with width (muP-style transfer or an empirical
+   sweep at 250M); batch size / tokens-per-step at 1B. Starting point for
+   the arithmetic at k=3, GLU, tied embeddings: dim 3072 x 12 blocks is
+   ~0.9B params; dim 2048 x (9-block cycle x 3) is ~1.0B with depth 27.
+
+Dataset for the 1B run: Chinchilla wants >=20B tokens. Recommended:
+`HuggingFaceFW/fineweb-edu` config `sample-100BT` -- same distribution as the
+current runs (clean continuity for cross-scale comparisons), 100B tokens so a
+single-epoch 20-30B subset never repeats. Stronger-mix alternative if we're
+willing to break continuity: `mlfoundations/dclm-baseline-1.0`.
 
 ## Still worth doing
 
