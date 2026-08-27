@@ -143,7 +143,10 @@ def main(argv: List[str]):
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
                          logger=make_logger(args.logger,
-                                            run_name=filename_template),
+                                            run_name="{}-k{}-d{}".format(
+                                                args.dataset.split('/')[-1],
+                                                args.kernel_size,
+                                                args.embedding_width)),
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
