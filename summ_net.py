@@ -199,6 +199,11 @@ class SummNet(pl.LightningModule):
             # so the tied matrix has the embedding's (vocab, dim) shape.
             assert fc_dim == dim, "weight tying requires fc_dim == dim"
             self.head[-1].weight = self.token_embedding_table.weight
+            # The tied matrix is also the output projection, and nn.Embedding's
+            # default N(0,1) init is ~30x hotter than a Linear's -- the model
+            # then spends thousands of warmup steps unlearning oversized
+            # logits (measured: +0.77 nats val at step 2.5k). GPT-style scale.
+            nn.init.normal_(self.token_embedding_table.weight, std=0.02)
         self.gc_time = dt.datetime.now()
 
     def forward(self, xi: Tens, _=None):

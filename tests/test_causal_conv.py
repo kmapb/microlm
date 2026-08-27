@@ -184,6 +184,8 @@ def test_v2_ties_weights_and_trains():
     V, C, T = 256, 16, 32
     net = _make_v2(V, C, T)
     assert net.head[-1].weight is net.token_embedding_table.weight
+    # Tied matrix gets output-projection-scale init, not embedding-scale.
+    assert float(net.token_embedding_table.weight.std()) < 0.05
 
     optimizer = torch.optim.SGD(net.parameters(), lr=0.05, momentum=0.9)
     batch = {'input_ids': torch.randint(0, V, (2, T)),
