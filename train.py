@@ -75,10 +75,11 @@ def main(argv: List[str]):
     parser.add_argument('--lr-decay-steps', type=int, default=100_000,
                         help='Steps over which LR cosine-decays to a 10%% floor')
     parser.add_argument('--arch', type=str, default='v2',
-                        choices=['v1', 'v2', 'v3'],
+                        choices=['v1', 'v2', 'v3', 't1'],
                         help='v1 = original blocks; v2 = GLU gating + skip '
                              'aggregation + tied embeddings; v3 = v2 without '
-                             'positional embeddings')
+                             'positional embeddings; t1 = GPT-2-style '
+                             'transformer baseline (height = layer count)')
     parser.add_argument('--logger', type=str, default='mlflow',
                         choices=['mlflow', 'tensorboard', 'csv', 'wandb', 'none'],
                         help='Where to send metrics')

@@ -160,7 +160,7 @@ def _make_v2(V=256, C=16, T=32, arch='v2'):
                    kernel_size=2, arch=arch)
 
 
-@pytest.mark.parametrize('arch', ['v2', 'v3'])
+@pytest.mark.parametrize('arch', ['v2', 'v3', 't1'])
 def test_v2_is_causal(arch):
     """Two inputs identical up to position t must produce identical
     predictions before t -- the functional causality test, covering the
@@ -225,6 +225,25 @@ def test_v3_has_no_pos_embedding_and_no_length_cap():
     with torch.no_grad():
         y = net(x)
     assert y.shape == (64, 256)
+
+
+def test_t1_ties_weights_and_trains():
+    V, C, T = 256, 16, 32
+    net = _make_v2(V, C, T, arch='t1')
+    assert net.head[-1].weight is net.token_embedding_table.weight
+    assert net.filter_bank.height == 3  # height passed through as layer count
+
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.05, momentum=0.9)
+    batch = {'input_ids': torch.randint(0, V, (2, T)),
+             'num_tokens': torch.full((2,), T)}
+    losses = []
+    for i in range(10):
+        loss = net.training_step(batch, i)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        losses.append(loss.item())
+    assert losses[-1] < losses[0], f"loss did not improve: {losses[0]} -> {losses[-1]}"
 
 
 def test_height_derived_from_context():

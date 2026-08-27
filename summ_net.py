@@ -144,6 +144,49 @@ class DilationNet(nn.Module):
         for c in self.layers:
             yield c
 
+class _TransformerBlock(nn.Module):
+    """Pre-norm GPT-2-style block: causal self-attention + 4x GELU MLP."""
+
+    def __init__(self, d: int, n_heads: int):
+        super(_TransformerBlock, self).__init__()
+        self.n_heads = n_heads
+        self.norm1 = nn.LayerNorm(d)
+        self.qkv = nn.Linear(d, 3 * d)
+        self.proj = nn.Linear(d, d)
+        self.norm2 = nn.LayerNorm(d)
+        self.mlp = nn.Sequential(nn.Linear(d, 4 * d), nn.GELU(),
+                                 nn.Linear(4 * d, d))
+
+    def forward(self, x: Tens):
+        B, T, C = x.shape
+        q, k, v = self.qkv(self.norm1(x)).chunk(3, dim=-1)
+        shape = (B, T, self.n_heads, C // self.n_heads)
+        q, k, v = (t.view(*shape).transpose(1, 2) for t in (q, k, v))
+        a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        x = x + self.proj(a.transpose(1, 2).reshape(B, T, C))
+        return x + self.mlp(self.norm2(x))
+
+
+class TransformerNet(nn.Module):
+    """GPT-2-style transformer behind the same (B, C, T) interface as the
+    conv stacks -- the attention baseline (arch 't1'). `height` is the
+    layer count here."""
+
+    def __init__(self, channels: int, n_layers: int):
+        super(TransformerNet, self).__init__()
+        n_heads = max(1, channels // 64)
+        self.blocks = nn.ModuleList(
+            [_TransformerBlock(channels, n_heads) for _ in range(n_layers)])
+        self.out_norm = ChannelNorm(channels)
+        self.height = n_layers
+
+    def forward(self, x: Tens):
+        y = x.permute(0, 2, 1)
+        for block in self.blocks:
+            y = block(y)
+        return self.out_norm(y.permute(0, 2, 1))
+
+
 class SummNet(pl.LightningModule):
     def __init__(self,
                  vocab_size: int=29000,
@@ -160,8 +203,12 @@ class SummNet(pl.LightningModule):
         # Layer h has dilation kernel_size**h, so a stack of H layers sees
         # kernel_size**H tokens back. Deriving H from max_length (the default)
         # gives the smallest stack that covers the whole context; anything
-        # taller convolves nothing but left-padding.
-        if height is None:
+        # taller convolves nothing but left-padding. (For the transformer
+        # baseline, height is just the layer count and kernel_size is unused.)
+        if arch == 't1':
+            if height is None:
+                height = 12
+        elif height is None:
             height = max(1, math.ceil(math.log(max_length, kernel_size)))
         elif kernel_size ** (height - 1) >= max_length:
             warnings.warn(
@@ -178,7 +225,7 @@ class SummNet(pl.LightningModule):
         self.total_train_tokens = 0
         # 'v1' is the pre-2026-08-27 architecture; checkpoints saved before
         # the arch hparam existed default to it and keep loading.
-        assert arch in ('v1', 'v2', 'v3'), f"unknown arch {arch!r}"
+        assert arch in ('v1', 'v2', 'v3', 't1'), f"unknown arch {arch!r}"
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
         if arch == 'v3':
@@ -189,7 +236,9 @@ class SummNet(pl.LightningModule):
             self.pos_embedding = None
         else:
             self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
-        if arch in ('v2', 'v3'):
+        if arch == 't1':
+            self.filter_bank = TransformerNet(dim, height)
+        elif arch in ('v2', 'v3'):
             self.filter_bank = GatedDilationNet(dim, height, kernel_size)
         else:
             self.filter_bank = DilationNet(dim, height, kernel_size)
@@ -201,7 +250,7 @@ class SummNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(fc_dim, vocab_size),
         )
-        if arch in ('v2', 'v3'):
+        if arch in ('v2', 'v3', 't1'):
             # Weight tying pays for the wider gated convs; needs fc_dim == dim
             # so the tied matrix has the embedding's (vocab, dim) shape.
             assert fc_dim == dim, "weight tying requires fc_dim == dim"

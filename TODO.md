@@ -87,6 +87,15 @@ willing to break continuity: `mlfoundations/dclm-baseline-1.0`.
 
 ## Still worth doing
 
+- **Dilated attention (candidate v4)**: keep the WaveNet routing topology --
+  each layer connects position i to {i, i-d, i-2d, ...} at dilation d=k^h --
+  but make the edge weights content-dependent QKV attention over that small
+  candidate set instead of fixed conv weights. Same O(T log T) cost and
+  log-depth tree, but the relay at each hop becomes selective, which is
+  exactly what fixed kernels can't do. Prior art: Sparse Transformers
+  (strided pattern), LongNet's dilated attention. Window per level probably
+  wants to be wider than k=3 (8-16 candidates) for selection to matter;
+  RoPE applies naturally since the mixing is dot-product attention.
 - `chat.py`'s HF GenerationMixin shim no longer survives modern transformers
   (cache prep wants a real model config: `num_hidden_layers` etc.). A plain
   top-k/top-p sampling loop over `SummNet.forward` is ~15 lines and drops the
