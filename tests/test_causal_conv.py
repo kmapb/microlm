@@ -155,6 +155,63 @@ def test_summ_net_trains():
     assert net.total_train_tokens == B * T * len(losses)
 
 
+def _make_v2(V=256, C=16, T=32):
+    return SummNet(vocab_size=V, dim=C, fc_dim=C, height=3, max_length=T,
+                   kernel_size=2, arch='v2')
+
+
+def test_v2_is_causal():
+    """Two inputs identical up to position t must produce identical
+    predictions before t -- the functional causality test, covering the
+    gated convs, pre-norm residuals, and skip aggregation together."""
+    V, C, T, t = 256, 16, 32, 20
+    net = _make_v2(V, C, T)
+    net.eval()
+
+    torch.manual_seed(1)
+    a = torch.randint(0, V, (1, T))
+    b = a.clone()
+    b[0, t:] = torch.randint(0, V, (T - t,))
+
+    with torch.no_grad():
+        ya = net(a).reshape(T, V)
+        yb = net(b).reshape(T, V)
+    torch.testing.assert_close(ya[:t], yb[:t])
+    assert not torch.allclose(ya[t:], yb[t:]), "suffix change had no effect"
+
+
+def test_v2_ties_weights_and_trains():
+    V, C, T = 256, 16, 32
+    net = _make_v2(V, C, T)
+    assert net.head[-1].weight is net.token_embedding_table.weight
+
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.05, momentum=0.9)
+    batch = {'input_ids': torch.randint(0, V, (2, T)),
+             'num_tokens': torch.full((2,), T)}
+    losses = []
+    for i in range(10):
+        loss = net.training_step(batch, i)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        losses.append(loss.item())
+    assert losses[-1] < losses[0], f"loss did not improve: {losses[0]} -> {losses[-1]}"
+    # Still tied after training.
+    assert net.head[-1].weight is net.token_embedding_table.weight
+
+
+def test_v2_param_count_near_v1():
+    """The design brief: tying pays for the gated width, so v2 stays near
+    v1's parameter count at matched dims (the exact ratio shifts with the
+    vocab/dim balance; at full scale it's within 5%)."""
+    kwargs = dict(vocab_size=1000, dim=64, fc_dim=64, height=4,
+                  max_length=256, kernel_size=3)
+    count = lambda net: sum(p.numel() for p in net.parameters()
+                            if p.requires_grad)
+    v1, v2 = count(SummNet(arch='v1', **kwargs)), count(SummNet(arch='v2', **kwargs))
+    assert abs(v2 - v1) / v1 < 0.35, f"v1={v1} v2={v2}"
+
+
 def test_height_derived_from_context():
     """Default height is the smallest stack whose receptive field
     (kernel_size ** height) covers max_length."""

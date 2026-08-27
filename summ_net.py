@@ -45,6 +45,76 @@ class CausalConv1d(nn.Module):
         assert conv1d_out.shape == (B, self.out_channels, T)
         return F.leaky_relu(conv1d_out)
 
+class GatedCausalConv1d(nn.Module):
+    """Dilated causal conv with a GLU: the conv computes 2*channels, split
+    into a value half and a gate half, output = v * sigmoid(g). The value
+    path is linear (no tanh) -- Dauphin et al.'s GCNN result."""
+
+    def __init__(self, kernel_size: int, channels: int, dilation: int=1):
+        super(GatedCausalConv1d, self).__init__()
+        self.kernel_size = kernel_size
+        self.dilation = dilation
+        self.conv1d = nn.Conv1d(channels, 2 * channels, kernel_size,
+                                stride=1,
+                                padding=(kernel_size - 1) * dilation,
+                                dilation=dilation)
+
+    def forward(self, seq: Tens):
+        B, C, T = seq.shape
+        out = self.conv1d(seq)[:, :, 0:-(self.kernel_size - 1) * self.dilation]
+        v, g = out.chunk(2, dim=1)
+        assert v.shape == (B, C, T)
+        return v * torch.sigmoid(g)
+
+
+class ChannelNorm(nn.Module):
+    """LayerNorm over the channel dim of a (B, C, T) tensor."""
+
+    def __init__(self, channels: int):
+        super(ChannelNorm, self).__init__()
+        self.norm = nn.LayerNorm(channels)
+
+    def forward(self, x: Tens):
+        return self.norm(x.permute(0, 2, 1)).permute(0, 2, 1)
+
+
+class GatedBlock(nn.Module):
+    """Pre-norm residual block with a skip tap: the residual stream stays
+    un-normalized, and each block emits a 1x1-projected skip contribution
+    for the head to aggregate."""
+
+    def __init__(self, channels: int, kernel_size: int, dilation: int):
+        super(GatedBlock, self).__init__()
+        self.norm = ChannelNorm(channels)
+        self.conv = GatedCausalConv1d(kernel_size, channels, dilation)
+        self.skip = nn.Conv1d(channels, channels, 1)
+
+    def forward(self, x: Tens):
+        h = self.conv(self.norm(x))
+        return x + h, self.skip(h)
+
+
+class GatedDilationNet(nn.Module):
+    """WaveNet-style stack: dilations kernel_size**h, and the output is the
+    normalized sum of every block's skip tap rather than the top of the
+    stack -- a path-length-1 gradient to each depth."""
+
+    def __init__(self, channels: int, height: int, kernel_size: int):
+        super(GatedDilationNet, self).__init__()
+        self.blocks = nn.ModuleList(
+            [GatedBlock(channels, kernel_size, dilation=kernel_size ** h)
+             for h in range(height)])
+        self.out_norm = ChannelNorm(channels)
+        self.height = height
+
+    def forward(self, x: Tens):
+        total = torch.zeros_like(x)
+        for block in self.blocks:
+            x, skip = block(x)
+            total = total + skip
+        return self.out_norm(total)
+
+
 class Residual(nn.Module):
     def __init__(self, submodule: nn.Module):
         super(Residual, self).__init__()
@@ -85,7 +155,8 @@ class SummNet(pl.LightningModule):
                  pad_token_id: int=0,
                  lr: float=3e-4,
                  warmup_steps: int=1000,
-                 lr_decay_steps: int=100_000):
+                 lr_decay_steps: int=100_000,
+                 arch: str='v1'):
         # Layer h has dilation kernel_size**h, so a stack of H layers sees
         # kernel_size**H tokens back. Deriving H from max_length (the default)
         # gives the smallest stack that covers the whole context; anything
@@ -108,7 +179,13 @@ class SummNet(pl.LightningModule):
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
         self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
-        self.filter_bank = DilationNet(dim, height, kernel_size)
+        # 'v1' is the pre-2026-08-27 architecture; checkpoints saved before
+        # the arch hparam existed default to it and keep loading.
+        assert arch in ('v1', 'v2'), f"unknown arch {arch!r}"
+        if arch == 'v2':
+            self.filter_bank = GatedDilationNet(dim, height, kernel_size)
+        else:
+            self.filter_bank = DilationNet(dim, height, kernel_size)
         # No activation after the final Linear: cross-entropy wants unbounded
         # logits, and squashing the negative half keeps the model from ever
         # confidently ruling a token out.
@@ -117,6 +194,11 @@ class SummNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(fc_dim, vocab_size),
         )
+        if arch == 'v2':
+            # Weight tying pays for the wider gated convs; needs fc_dim == dim
+            # so the tied matrix has the embedding's (vocab, dim) shape.
+            assert fc_dim == dim, "weight tying requires fc_dim == dim"
+            self.head[-1].weight = self.token_embedding_table.weight
         self.gc_time = dt.datetime.now()
 
     def forward(self, xi: Tens, _=None):

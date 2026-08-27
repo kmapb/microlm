@@ -74,6 +74,9 @@ def main(argv: List[str]):
                         help='Linear LR warmup steps')
     parser.add_argument('--lr-decay-steps', type=int, default=100_000,
                         help='Steps over which LR cosine-decays to a 10%% floor')
+    parser.add_argument('--arch', type=str, default='v2', choices=['v1', 'v2'],
+                        help='v2 = GLU gating + skip aggregation + tied '
+                             'embeddings; v1 = the original blocks')
     parser.add_argument('--logger', type=str, default='mlflow',
                         choices=['mlflow', 'tensorboard', 'csv', 'wandb', 'none'],
                         help='Where to send metrics')
@@ -104,7 +107,8 @@ def main(argv: List[str]):
     torch.set_float32_matmul_precision('medium')
     pl.seed_everything(args.random_seed)
     # saves top-K checkpoints based on "val_loss" metric
-    filename_template = "ckpt-k{}-d{}".format(args.kernel_size, args.embedding_width)
+    filename_template = "ckpt-{}-k{}-d{}".format(
+        args.arch, args.kernel_size, args.embedding_width)
     checkpoint_callback = PLCB.ModelCheckpoint(
         save_top_k=3,
         monitor="val_loss",
@@ -128,7 +132,8 @@ def main(argv: List[str]):
                         pad_token_id=text_data.pad_token_id(),
                         lr=args.lr,
                         warmup_steps=args.warmup_steps,
-                        lr_decay_steps=args.lr_decay_steps)
+                        lr_decay_steps=args.lr_decay_steps,
+                        arch=args.arch)
 
     trainer = pl.Trainer(accelerator='auto',
                          precision='16-mixed' if torch.cuda.is_available() else '32-true',
@@ -143,8 +148,9 @@ def main(argv: List[str]):
                          limit_test_batches=8000,
                          max_epochs=args.max_epochs,
                          logger=make_logger(args.logger,
-                                            run_name="{}-k{}-d{}".format(
+                                            run_name="{}-{}-k{}-d{}".format(
                                                 args.dataset.split('/')[-1],
+                                                args.arch,
                                                 args.kernel_size,
                                                 args.embedding_width)),
                          )
