@@ -25,6 +25,36 @@ and aren't comparable. What each was:
    height defaults to the smallest stack covering `max_length` (8 for the
    defaults); explicit overshoots warn.
 
+## Proposed: gated blocks + skip aggregation (arch v2)
+
+Design agreed 2026-08-27; not yet implemented. Three changes that land as one
+new architecture (`arch='v2'` hparam; absent-key default `'v1'` keeps old
+checkpoints loading):
+
+1. **GLU gating** (Dauphin et al. 2017). Replace each block's
+   `conv -> leaky_relu` with a single dilated causal conv to `2*dim` channels,
+   split into value/gate halves: `v, g = conv(x).chunk(2, dim=1); h = v *
+   sigmoid(g)`. The linear (untanh'd) value path is GCNN's headline result
+   over WaveNet's tanh x sigmoid -- keeps a linear gradient path through depth.
+2. **Pre-norm residual blocks.** `x + f(LayerNorm(x))` instead of the current
+   post-norm `LayerNorm(x + f(x))`; the residual stream stays un-normalized,
+   which trains more stably and composes with skip taps.
+3. **Skip aggregation** (WaveNet). Each block also emits `skip_l = W_l h_l`
+   (per-layer 1x1 conv); the head consumes `LayerNorm(sum_l skip_l)` instead
+   of the top of the stack. Gives the loss a path-length-1 gradient to every
+   depth and lets shallow layers (n-gram features) feed the prediction
+   directly.
+
+Plus **weight tying** to pay for it: tie the head's final `Linear(fc_dim,
+vocab)` to the embedding table (works because fc_dim == dim == 1024). Param
+arithmetic at d=1024/h=8: GLU doubles conv width (+25M), skip 1x1s +8M,
+tying -30M -> ~93M total, within 4% of v1's 89.8M, so the fineweb comparison
+stays fair at the same 1.8B-token budget.
+
+Controlled experiment: identical recipe (3e-4, warmup 1k, cosine to floor at
+55k steps, fineweb-edu sample-10BT, single pass), same MLflow experiment;
+readout is val/test delta vs fineweb-edu-k3-d1024's 4.073/4.082.
+
 ## Still worth doing
 
 - `chat.py`'s HF GenerationMixin shim no longer survives modern transformers
