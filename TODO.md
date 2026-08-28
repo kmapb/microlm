@@ -94,17 +94,51 @@ current runs (clean continuity for cross-scale comparisons), 100B tokens so a
 single-epoch 20-30B subset never repeats. Stronger-mix alternative if we're
 willing to break continuity: `mlfoundations/dclm-baseline-1.0`.
 
-## Still worth doing
+## Planned: v4 -- QKV spanning tree (dilated attention)
 
-- **Dilated attention (candidate v4)**: keep the WaveNet routing topology --
-  each layer connects position i to {i, i-d, i-2d, ...} at dilation d=k^h --
-  but make the edge weights content-dependent QKV attention over that small
-  candidate set instead of fixed conv weights. Same O(T log T) cost and
-  log-depth tree, but the relay at each hop becomes selective, which is
-  exactly what fixed kernels can't do. Prior art: Sparse Transformers
-  (strided pattern), LongNet's dilated attention. Window per level probably
-  wants to be wider than k=3 (8-16 candidates) for selection to matter;
-  RoPE applies naturally since the mixing is dot-product attention.
+Design agreed 2026-08-28. Target: close part of the measured 0.42-nat gap
+between v3 (3.786) and t1 (3.365) while staying O(T log T) and
+length-agnostic. Lives side by side with v3: new module `tree_attention.py`,
+`arch='v4'`; the v3 classes are not touched.
+
+**Core op (`DilatedAttention`)**: at a layer with dilation d and window w,
+position i attends over the candidate set {i - j*d : j = 0..w-1} -- multi-head
+q.k softmax over w slots, plus a learned per-slot, per-head bias (T5-style,
+w x heads params). The bias is the exact analogue of the conv kernel's
+per-offset weights, so uniform-query behavior recovers a dilated conv as a
+special case; content-dependence is strictly added expressivity. No global
+PE (v3 lesson); slot bias carries local offset identity. RoPE on q/k is the
+ablation alternative if slot bias underperforms.
+
+**Implementation**: per slot j, left-pad K/V by j*d in time and slice (a
+w-iteration python loop of tensor slices, w is small); scores (B, H, T, w),
+mask slots reaching before t=0, softmax over w, weighted-sum values, output
+projection. Memory ~w x the K/V tensors -- fine at w=8, T=4096, A100.
+
+**Block/stack**: reuse the v3 macro-structure unchanged -- pre-norm block,
+residual stream, per-layer 1x1 skip tap, head consumes LayerNorm(sum of
+skips), tied embeddings with 0.02 init. The ONLY change vs v3 is
+GatedCausalConv1d -> DilatedAttention, keeping the ablation clean.
+
+**Schedule**: dilations d = w^l for l in 0..L-1 (one cycle covers w^L >=
+max_length; w=8, T=4096 -> L=4), repeated for C cycles (default 3 -> 12
+layers, ~94M params at dim 1024 -- in family with v2/v3/t1). New hparams
+`window` (8), `cycles` (3); CLI --window/--cycles.
+
+**Validation before the 5h run**: (1) unit tests -- causality parametrized,
+full-context reachability (perturb token 0, prediction at T-1 moves), tying/
+trains; (2) a 10-minute synthetic associative-recall probe (Zoology-style:
+key-value pairs in context, query at the end) at tiny scale comparing
+v3/v4/t1 -- v4's reason to exist is that probe, so measure it first.
+
+**Run**: identical fineweb recipe (55k steps, 1.8B tokens), run name
+fineweb-edu-v4-*; readout vs v3 3.786 / t1 3.365, plus wikitext cross-eval
+and samples.
+
+**Known risks**: value must survive C*L relay hops for exact long-range
+recall (cycles >= 2 so late cycles re-route with better keys); slot softmax
+includes j=0 self, giving a natural pass-through path; watch GPU util on the
+slice-loop implementation.
 - `chat.py`'s HF GenerationMixin shim no longer survives modern transformers
   (cache prep wants a real model config: `num_hidden_layers` etc.). A plain
   top-k/top-p sampling loop over `SummNet.forward` is ~15 lines and drops the
