@@ -27,10 +27,19 @@ and aren't comparable. What each was:
 
 ## Proposed: gated blocks + skip aggregation (arch v2)
 
-Implemented 2026-08-27 (`Arch v2:` commit, plus the tied-init fix); the
-controlled fineweb run is in flight. Three changes that land as one new
-architecture (`arch='v2'` hparam; absent-key default `'v1'` keeps old
-checkpoints loading):
+**Done, and measured** (2026-08-28). Controlled ladder on fineweb-edu, ~90M
+params, 1.8B tokens, identical recipe -- final val / fineweb test / wikitext
+zero-shot:
+
+    v1 (baseline convs)   4.073 / 4.082 / 5.007
+    v2 (+GLU, skip, tie)  3.895 / 3.903 / 4.812
+    v3 (v2 minus PE)      3.786 / 3.793 / 4.693   <- reference conv arch
+    t1 (GPT-2-ish, 9x768) 3.365 / 3.379 / 4.224   <- attention premium: 0.42 nats
+
+v3 is the conv architecture going forward; the 0.42-nat gap to t1 at equal
+params/data is the target for dilated attention (v4). Original design notes
+(`arch='v2'` hparam; absent-key default `'v1'` keeps old checkpoints
+loading):
 
 1. **GLU gating** (Dauphin et al. 2017). Replace each block's
    `conv -> leaky_relu` with a single dilated causal conv to `2*dim` channels,
