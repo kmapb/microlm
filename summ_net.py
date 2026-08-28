@@ -7,6 +7,7 @@ from torch import Tensor as Tens
 from torch.nn import functional as F
 import pytorch_lightning as pl
 import util
+from tree_attention import TreeAttentionNet
 from typing import cast, Dict, Optional
 import datetime as dt
 
@@ -199,7 +200,9 @@ class SummNet(pl.LightningModule):
                  lr: float=3e-4,
                  warmup_steps: int=1000,
                  lr_decay_steps: int=100_000,
-                 arch: str='v1'):
+                 arch: str='v1',
+                 window: int=8,
+                 cycles: int=3):
         # Layer h has dilation kernel_size**h, so a stack of H layers sees
         # kernel_size**H tokens back. Deriving H from max_length (the default)
         # gives the smallest stack that covers the whole context; anything
@@ -208,6 +211,11 @@ class SummNet(pl.LightningModule):
         if arch == 't1':
             if height is None:
                 height = 12
+        elif arch == 'v4':
+            # Depth comes from the dilation ladder: one cycle of levels
+            # w^0..w^(L-1) covers window**L context, repeated `cycles` times.
+            levels = max(1, math.ceil(math.log(max_length, window)))
+            height = levels * cycles
         elif height is None:
             height = max(1, math.ceil(math.log(max_length, kernel_size)))
         elif kernel_size ** (height - 1) >= max_length:
@@ -225,19 +233,24 @@ class SummNet(pl.LightningModule):
         self.total_train_tokens = 0
         # 'v1' is the pre-2026-08-27 architecture; checkpoints saved before
         # the arch hparam existed default to it and keep loading.
-        assert arch in ('v1', 'v2', 'v3', 't1'), f"unknown arch {arch!r}"
+        assert arch in ('v1', 'v2', 'v3', 'v4', 't1'), f"unknown arch {arch!r}"
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
-        if arch == 'v3':
+        if arch in ('v3', 'v4'):
             # No positional embedding: convolutions are translation-equivariant,
             # so the kernel structure already encodes relative position, and
             # packed windows make absolute position-in-window arbitrary anyway.
+            # (v4's slot biases carry offset identity the same way kernels do.)
             # Also frees inference from the max_length cap.
             self.pos_embedding = None
         else:
             self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
         if arch == 't1':
             self.filter_bank = TransformerNet(dim, height)
+        elif arch == 'v4':
+            self.filter_bank = TreeAttentionNet(dim, window,
+                                                levels=height // cycles,
+                                                cycles=cycles)
         elif arch in ('v2', 'v3'):
             self.filter_bank = GatedDilationNet(dim, height, kernel_size)
         else:
@@ -250,7 +263,7 @@ class SummNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(fc_dim, vocab_size),
         )
-        if arch in ('v2', 'v3', 't1'):
+        if arch in ('v2', 'v3', 'v4', 't1'):
             # Weight tying pays for the wider gated convs; needs fc_dim == dim
             # so the tied matrix has the embedding's (vocab, dim) shape.
             assert fc_dim == dim, "weight tying requires fc_dim == dim"

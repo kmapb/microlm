@@ -75,11 +75,16 @@ def main(argv: List[str]):
     parser.add_argument('--lr-decay-steps', type=int, default=100_000,
                         help='Steps over which LR cosine-decays to a 10%% floor')
     parser.add_argument('--arch', type=str, default='v2',
-                        choices=['v1', 'v2', 'v3', 't1'],
+                        choices=['v1', 'v2', 'v3', 'v4', 't1'],
                         help='v1 = original blocks; v2 = GLU gating + skip '
                              'aggregation + tied embeddings; v3 = v2 without '
-                             'positional embeddings; t1 = GPT-2-style '
+                             'positional embeddings; v4 = dilated QKV '
+                             'attention on the wavenet tree; t1 = GPT-2-style '
                              'transformer baseline (height = layer count)')
+    parser.add_argument('--window', type=int, default=8,
+                        help='v4: attention candidates per level')
+    parser.add_argument('--cycles', type=int, default=3,
+                        help='v4: repeats of the dilation ladder')
     parser.add_argument('--logger', type=str, default='mlflow',
                         choices=['mlflow', 'tensorboard', 'csv', 'wandb', 'none'],
                         help='Where to send metrics')
@@ -136,7 +141,9 @@ def main(argv: List[str]):
                         lr=args.lr,
                         warmup_steps=args.warmup_steps,
                         lr_decay_steps=args.lr_decay_steps,
-                        arch=args.arch)
+                        arch=args.arch,
+                        window=args.window,
+                        cycles=args.cycles)
 
     trainer = pl.Trainer(accelerator='auto',
                          precision='16-mixed' if torch.cuda.is_available() else '32-true',
