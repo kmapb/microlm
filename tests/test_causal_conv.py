@@ -278,6 +278,43 @@ def test_v4_reaches_full_context_and_trains():
     assert losses[-1] < losses[0], f"loss did not improve: {losses[0]} -> {losses[-1]}"
 
 
+def test_dilated_attention_matches_slot_reference():
+    """The folded/chunked SDPA fast path must equal the naive slot
+    semantics: softmax over {i - j*d : j < w, i - j*d >= 0} with the
+    per-slot bias, across ragged shapes hitting both code paths."""
+    import math as m
+    from tree_attention import DilatedAttention
+
+    def reference(mod, x):
+        B, T, C = x.shape
+        H, w, d = mod.n_heads, mod.window, mod.dilation
+        hd = C // H
+        q, k, v = mod.qkv(x).chunk(3, dim=-1)
+        q = q.view(B, T, H, hd).transpose(1, 2)
+        k = k.view(B, T, H, hd).transpose(1, 2)
+        v = v.view(B, T, H, hd).transpose(1, 2)
+        out = torch.zeros_like(q)
+        for b in range(B):
+            for h in range(H):
+                for t in range(T):
+                    js = [j for j in range(w) if t - j * d >= 0]
+                    ks = torch.stack([k[b, h, t - j * d] for j in js])
+                    sc = ks @ q[b, h, t] / m.sqrt(hd) + mod.slot_bias[h, js]
+                    p = torch.softmax(sc, dim=-1)
+                    out[b, h, t] = p @ torch.stack([v[b, h, t - j * d] for j in js])
+        return mod.proj(out.transpose(1, 2).reshape(B, T, C))
+
+    torch.manual_seed(3)
+    for (T, w, d) in [(13, 3, 4), (32, 4, 1), (17, 4, 4), (8, 8, 2), (30, 3, 9)]:
+        mod = DilatedAttention(channels=16, window=w, dilation=d)
+        torch.nn.init.normal_(mod.slot_bias, std=0.5)
+        x = torch.randn(2, T, 16)
+        with torch.no_grad():
+            torch.testing.assert_close(mod(x), reference(mod, x),
+                                       rtol=1e-4, atol=1e-5,
+                                       msg=f"mismatch at T={T} w={w} d={d}")
+
+
 def test_height_derived_from_context():
     """Default height is the smallest stack whose receptive field
     (kernel_size ** height) covers max_length."""

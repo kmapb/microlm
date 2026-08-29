@@ -121,8 +121,12 @@ def main(argv: List[str]):
     torch.set_float32_matmul_precision('medium')
     pl.seed_everything(args.random_seed)
     # saves top-K checkpoints based on "val_loss" metric
+    arch_tag = args.arch
+    if args.arch == 'v4':
+        # The n-ariness sweep needs distinguishable runs/checkpoints.
+        arch_tag = "v4w{}x{}".format(args.window, args.cycles)
     filename_template = "ckpt-{}-k{}-d{}".format(
-        args.arch, args.kernel_size, args.embedding_width)
+        arch_tag, args.kernel_size, args.embedding_width)
     checkpoint_callback = PLCB.ModelCheckpoint(
         save_top_k=3,
         monitor="val_loss",
@@ -166,7 +170,7 @@ def main(argv: List[str]):
                          logger=make_logger(args.logger,
                                             run_name="{}-{}-k{}-d{}".format(
                                                 args.dataset.split('/')[-1],
-                                                args.arch,
+                                                arch_tag,
                                                 args.kernel_size,
                                                 args.embedding_width),
                                             run_id=args.mlflow_run_id),
