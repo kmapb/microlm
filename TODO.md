@@ -34,8 +34,18 @@ zero-shot:
     v1 (baseline convs)   4.073 / 4.082 / 5.007
     v2 (+GLU, skip, tie)  3.895 / 3.903 / 4.812
     v3 (v2 minus PE)      3.786 / 3.793 / 4.693   <- reference conv arch
-    v4 (QKV tree)         3.673 / 3.677 / 4.481   <- recovers ~27% of the premium
+    v4 n=8 (4 hops)       3.673 / 3.677 / 4.481   <- recovers ~27% of the premium
+    v4 n=64 (2 hops)      3.546 / 3.557 / 4.307   <- recovers ~57% of the premium
     t1 (GPT-2-ish, 9x768) 3.365 / 3.379 / 4.224   <- attention premium: 0.42 nats
+
+n-ariness sweep (2026-08-29): halving relay hops (4 -> 2) roughly doubled
+the recovered premium at equal params/depth/FLOPs-ish -- hop count looks
+like the dominant term. Natural next points: window=4096 (1 hop; isolates
+the MLP/macro-structure confound vs t1 since mixing becomes full causal
+attention inside the v4 block structure), and v4m (+MLPs). Also observed:
+free-running repetition loops strengthen monotonically with window size
+even as loss improves -- copy circuits get stronger; scripts/sample.py's
+rep-penalty partially compensates.
 
 v4 notes (2026-08-29): crossed below v3 at step 7.5k, gap widened
 monotonically to -0.113 final; vs t1 the deficit plateaued at ~0.31 by
