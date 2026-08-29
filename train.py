@@ -16,14 +16,17 @@ from typing import List, cast
 MLFLOW_URI = os.environ.get('MLFLOW_TRACKING_URI', 'https://mlflow.pbd.vc')
 
 
-def make_logger(kind: str, run_name: str = None):
+def make_logger(kind: str, run_name: str = None, run_id: str = None):
     """mlflow (the shared server) is the default; the others are for offline
     boxes and quick local runs. wandb needs a login -- ask for it explicitly."""
     if kind == 'none':
         return False
     if kind == 'mlflow':
+        # run_id resumes logging into an existing run (crash recovery);
+        # otherwise a fresh run is created under run_name.
         return PLLG.MLFlowLogger(experiment_name="microlm",
                                  run_name=run_name,
+                                 run_id=run_id,
                                  tracking_uri=MLFLOW_URI)
     if kind == 'tensorboard':
         return PLLG.TensorBoardLogger(save_dir=str(paths.LOG_DIR), name="microlm")
@@ -94,6 +97,9 @@ def main(argv: List[str]):
                         help='Training batches between validation passes')
     parser.add_argument('--test-only', action='store_true',
                         help='Just test the checkpoint')
+    parser.add_argument('--mlflow-run-id', type=str, default=None,
+                        help='Resume logging into this existing MLflow run '
+                             '(pairs with --checkpoint-restore)')
     args = parser.parse_args(argv)
 
     # dataset: 'Salesforce/wikitext', dataset_cfg: 'wikitext-2-raw-v1', # quick test
@@ -162,7 +168,8 @@ def main(argv: List[str]):
                                                 args.dataset.split('/')[-1],
                                                 args.arch,
                                                 args.kernel_size,
-                                                args.embedding_width)),
+                                                args.embedding_width),
+                                            run_id=args.mlflow_run_id),
                          )
 
     stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
