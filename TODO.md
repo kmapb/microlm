@@ -34,7 +34,18 @@ zero-shot:
     v1 (baseline convs)   4.073 / 4.082 / 5.007
     v2 (+GLU, skip, tie)  3.895 / 3.903 / 4.812
     v3 (v2 minus PE)      3.786 / 3.793 / 4.693   <- reference conv arch
+    v4 (QKV tree)         3.673 / 3.677 / 4.481   <- recovers ~27% of the premium
     t1 (GPT-2-ish, 9x768) 3.365 / 3.379 / 4.224   <- attention premium: 0.42 nats
+
+v4 notes (2026-08-29): crossed below v3 at step 7.5k, gap widened
+monotonically to -0.113 final; vs t1 the deficit plateaued at ~0.31 by
+mid-run. Confound: t1 blocks have 4x GELU MLPs, v4 blocks are mixing-only
+-- a "v4m" (+MLPs, params rebalanced) would separate topology from
+capacity. v4 also shows an attention-flavored sampling pathology (topical
+repetition loops) the convs lacked. Run crashed once at step 43k when the
+mlflow Postgres went read-only (logger exceptions are fatal in Lightning;
+consider fail-soft wrapping before long runs) -- resumed cleanly via
+--checkpoint-restore + --mlflow-run-id.
 
 v3 is the conv architecture going forward; the 0.42-nat gap to t1 at equal
 params/data is the target for dilated attention (v4). Original design notes
