@@ -314,6 +314,22 @@ def test_dilated_attention_matches_slot_reference():
                                        rtol=1e-4, atol=1e-5,
                                        msg=f"mismatch at T={T} w={w} d={d}")
 
+    # The no-bias flash path (full-context hop above BIAS_MAX_LEN) must match
+    # the reference when slot_bias is zero; force the threshold low to hit it.
+    import tree_attention
+    saved = tree_attention.BIAS_MAX_LEN
+    tree_attention.BIAS_MAX_LEN = 8
+    try:
+        mod = DilatedAttention(channels=16, window=16, dilation=1)
+        assert mod.slot_bias.abs().sum() == 0
+        x = torch.randn(2, 16, 16)
+        with torch.no_grad():
+            torch.testing.assert_close(mod(x), reference(mod, x),
+                                       rtol=1e-4, atol=1e-5,
+                                       msg="no-bias flash path mismatch")
+    finally:
+        tree_attention.BIAS_MAX_LEN = saved
+
 
 def test_height_derived_from_context():
     """Default height is the smallest stack whose receptive field

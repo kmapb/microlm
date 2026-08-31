@@ -17,6 +17,11 @@ from torch import nn
 from torch import Tensor as Tens
 from torch.nn import functional as F
 
+# Above this folded length, a single-hop level skips the learned slot bias
+# (see forward): building the (Tf, Tf) bias dominates runtime, and at that
+# scale it's a relative PE this family measurably doesn't want (v3 result).
+BIAS_MAX_LEN = 512
+
 
 class DilatedAttention(nn.Module):
     """Multi-head attention restricted to the dilated candidate set.
@@ -63,22 +68,33 @@ class DilatedAttention(nn.Module):
         v = v.view(B, T, H, hd).transpose(1, 2)
 
         # Right-pad time to a multiple of d, then fold residue classes into
-        # the batch: (B, H, T, hd) -> (B, H, d, Tf, hd). Padded queries are
-        # sliced off at the end; padded keys sit in the future of every real
-        # query, so causality already hides them.
+        # the *batch* dim: (B, H, T, hd) -> (B*d, H, Tf, hd). Keeping inputs
+        # 4-D matters: 5-D knocks SDPA off its fused kernels onto the math
+        # backend, which materializes fp32 (T, T) scores and OOMs at large
+        # windows. Padded queries are sliced off at the end; padded keys sit
+        # in the future of every real query, so causality hides them.
         Tp = -(-T // d) * d
         if Tp != T:
             q, k, v = (F.pad(t, (0, 0, 0, Tp - T)) for t in (q, k, v))
         Tf = Tp // d
-        q, k, v = (t.view(B, H, Tf, d, hd).permute(0, 1, 3, 2, 4)
-                   for t in (q, k, v))
+        # t = f*d + r: split time into (fold f, residue r), move r to batch.
+        q, k, v = (t.view(B, H, Tf, d, hd).permute(0, 3, 1, 2, 4)
+                    .reshape(B * d, H, Tf, hd) for t in (q, k, v))
 
         idx = torch.arange(Tf, device=x.device)
         if Tf <= w:
-            # One SDPA over the whole folded sequence; rel = i - j.
-            mask = self._bias(idx.view(Tf, 1) - idx.view(1, Tf))
-            out = F.scaled_dot_product_attention(
-                q, k, v, attn_mask=mask.view(1, H, 1, Tf, Tf).to(q.dtype))
+            if Tf > BIAS_MAX_LEN:
+                # Full-context hop: a learned (Tf, Tf) bias costs more to
+                # build (and backprop) than the attention itself, and at this
+                # scale it's just a relative PE -- which this family has
+                # measured it doesn't want (v3). Pure NoPE causal flash;
+                # slot_bias goes unused at this level.
+                out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+            else:
+                # One SDPA over the whole folded sequence; rel = i - j.
+                mask = self._bias(idx.view(Tf, 1) - idx.view(1, Tf))
+                out = F.scaled_dot_product_attention(
+                    q, k, v, attn_mask=mask.view(1, H, Tf, Tf).to(q.dtype))
         else:
             # Chunked local attention: pad Tf to n*w chunks; each chunk
             # attends to [previous chunk | own chunk] under the band mask.
@@ -86,31 +102,36 @@ class DilatedAttention(nn.Module):
             if Tc != Tf:
                 q, k, v = (F.pad(t, (0, 0, 0, Tc - Tf)) for t in (q, k, v))
             n = Tc // w
-            qc = q.view(B, H, d, n, w, hd)
-            kc = k.view(B, H, d, n, w, hd)
-            vc = v.view(B, H, d, n, w, hd)
+            qc = q.view(B * d, H, n, w, hd)
+            kc = k.view(B * d, H, n, w, hd)
+            vc = v.view(B * d, H, n, w, hd)
 
             li = torch.arange(w, device=x.device)
             # Chunk 0: own chunk only; rel = i - j.
             m0 = self._bias(li.view(w, 1) - li.view(1, w))
             o0 = F.scaled_dot_product_attention(
-                qc[:, :, :, 0], kc[:, :, :, 0], vc[:, :, :, 0],
-                attn_mask=m0.view(1, H, 1, w, w).to(q.dtype))
-            outs = [o0.unsqueeze(3)]
+                qc[:, :, 0], kc[:, :, 0], vc[:, :, 0],
+                attn_mask=m0.view(1, H, w, w).to(q.dtype))
+            outs = [o0.unsqueeze(2)]
             if n > 1:
-                kcat = torch.cat([kc[:, :, :, :-1], kc[:, :, :, 1:]], dim=4)
-                vcat = torch.cat([vc[:, :, :, :-1], vc[:, :, :, 1:]], dim=4)
+                def merge(t):  # (B*d, H, n-1, L, hd) -> (B*d*(n-1), H, L, hd)
+                    return t.permute(0, 2, 1, 3, 4).reshape(-1, H, t.shape[3], hd)
+                kcat = torch.cat([kc[:, :, :-1], kc[:, :, 1:]], dim=3)
+                vcat = torch.cat([vc[:, :, :-1], vc[:, :, 1:]], dim=3)
                 # Key column j spans prev chunk (j < w) and own chunk;
                 # rel = (i + w) - j.
-                mr = self._bias(li.view(w, 1) + w - torch.arange(2 * w, device=x.device).view(1, 2 * w))
+                mr = self._bias(li.view(w, 1) + w -
+                                torch.arange(2 * w, device=x.device).view(1, 2 * w))
                 orest = F.scaled_dot_product_attention(
-                    qc[:, :, :, 1:], kcat, vcat,
-                    attn_mask=mr.view(1, H, 1, 1, w, 2 * w).to(q.dtype))
+                    merge(qc[:, :, 1:]), merge(kcat), merge(vcat),
+                    attn_mask=mr.view(1, H, w, 2 * w).to(q.dtype))
+                orest = orest.view(B * d, n - 1, H, w, hd).permute(0, 2, 1, 3, 4)
                 outs.append(orest)
-            out = torch.cat(outs, dim=3).reshape(B, H, d, Tc, hd)[:, :, :, :Tf]
+            out = torch.cat(outs, dim=2).reshape(B * d, H, Tc, hd)[:, :, :Tf]
 
-        # Unfold: (B, H, d, Tf, hd) -> (B, H, T, hd) -> (B, T, C).
-        out = out.permute(0, 1, 3, 2, 4).reshape(B, H, Tp, hd)[:, :, :T]
+        # Unfold: (B*d, H, Tf, hd) -> (B, H, Tp, hd) -> (B, T, C).
+        out = (out.view(B, d, H, Tf, hd).permute(0, 2, 3, 1, 4)
+                  .reshape(B, H, Tp, hd)[:, :, :T])
         out = out.transpose(1, 2).reshape(B, T, C)
         return self.proj(out)
 
