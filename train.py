@@ -16,6 +16,30 @@ from typing import List, cast
 MLFLOW_URI = os.environ.get('MLFLOW_TRACKING_URI', 'https://mlflow.pbd.vc')
 
 
+class FailSoftMLFlowLogger(PLLG.MLFlowLogger):
+    """A metrics-DB blip must not kill a training run (a ~3-minute managed-
+    Postgres failover took down 6 GPU-hours on 2026-08-29): drop the points
+    and keep training instead of raising through Lightning."""
+
+    def log_metrics(self, metrics, step=None):
+        try:
+            super().log_metrics(metrics, step)
+        except Exception as e:
+            print(f"[mlflow] dropped metrics at step {step}: {e}")
+
+    def log_hyperparams(self, params):
+        try:
+            super().log_hyperparams(params)
+        except Exception as e:
+            print(f"[mlflow] dropped hparams: {e}")
+
+    def finalize(self, status):
+        try:
+            super().finalize(status)
+        except Exception as e:
+            print(f"[mlflow] finalize failed: {e}")
+
+
 def make_logger(kind: str, run_name: str = None, run_id: str = None):
     """mlflow (the shared server) is the default; the others are for offline
     boxes and quick local runs. wandb needs a login -- ask for it explicitly."""
@@ -24,10 +48,10 @@ def make_logger(kind: str, run_name: str = None, run_id: str = None):
     if kind == 'mlflow':
         # run_id resumes logging into an existing run (crash recovery);
         # otherwise a fresh run is created under run_name.
-        return PLLG.MLFlowLogger(experiment_name="microlm",
-                                 run_name=run_name,
-                                 run_id=run_id,
-                                 tracking_uri=MLFLOW_URI)
+        return FailSoftMLFlowLogger(experiment_name="microlm",
+                                    run_name=run_name,
+                                    run_id=run_id,
+                                    tracking_uri=MLFLOW_URI)
     if kind == 'tensorboard':
         return PLLG.TensorBoardLogger(save_dir=str(paths.LOG_DIR), name="microlm")
     if kind == 'csv':

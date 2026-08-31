@@ -318,8 +318,9 @@ class SummNet(pl.LightningModule):
         self.log('length', 1.0 * T)
         # A running total, not something to average over the epoch -- hence
         # log_metrics rather than self.log. There isn't always a logger to talk
-        # to (bare training_step calls in tests, `--logger none`).
-        if self.logger is not None:
+        # to (bare training_step calls in tests, `--logger none`). Throttled:
+        # a row per step is 55k inserts/run of pure metrics-DB churn.
+        if self.logger is not None and batch_idx % 100 == 0:
             self.logger.log_metrics({'train_tokens': self.total_train_tokens})
         return loss
 
