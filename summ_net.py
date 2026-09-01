@@ -211,7 +211,7 @@ class SummNet(pl.LightningModule):
         if arch == 't1':
             if height is None:
                 height = 12
-        elif arch == 'v4':
+        elif arch in ('v4', 'v4m'):
             # Depth comes from the dilation ladder: one cycle of levels
             # w^0..w^(L-1) covers window**L context, repeated `cycles` times.
             levels = max(1, math.ceil(math.log(max_length, window)))
@@ -233,10 +233,10 @@ class SummNet(pl.LightningModule):
         self.total_train_tokens = 0
         # 'v1' is the pre-2026-08-27 architecture; checkpoints saved before
         # the arch hparam existed default to it and keep loading.
-        assert arch in ('v1', 'v2', 'v3', 'v4', 't1'), f"unknown arch {arch!r}"
+        assert arch in ('v1', 'v2', 'v3', 'v4', 'v4m', 't1'), f"unknown arch {arch!r}"
         # Embed(B, T) -> (B, C, T)
         self.token_embedding_table = nn.Embedding(vocab_size, dim)
-        if arch in ('v3', 'v4'):
+        if arch in ('v3', 'v4', 'v4m'):
             # No positional embedding: convolutions are translation-equivariant,
             # so the kernel structure already encodes relative position, and
             # packed windows make absolute position-in-window arbitrary anyway.
@@ -247,10 +247,11 @@ class SummNet(pl.LightningModule):
             self.pos_embedding = nn.Parameter(0.1 * torch.randn( (dim, max_length)).to(self.device))
         if arch == 't1':
             self.filter_bank = TransformerNet(dim, height)
-        elif arch == 'v4':
+        elif arch in ('v4', 'v4m'):
             self.filter_bank = TreeAttentionNet(dim, window,
                                                 levels=height // cycles,
-                                                cycles=cycles)
+                                                cycles=cycles,
+                                                mlp=(arch == 'v4m'))
         elif arch in ('v2', 'v3'):
             self.filter_bank = GatedDilationNet(dim, height, kernel_size)
         else:
@@ -263,7 +264,7 @@ class SummNet(pl.LightningModule):
             nn.LeakyReLU(),
             nn.Linear(fc_dim, vocab_size),
         )
-        if arch in ('v2', 'v3', 'v4', 't1'):
+        if arch in ('v2', 'v3', 'v4', 'v4m', 't1'):
             # Weight tying pays for the wider gated convs; needs fc_dim == dim
             # so the tied matrix has the embedding's (vocab, dim) shape.
             assert fc_dim == dim, "weight tying requires fc_dim == dim"

@@ -138,17 +138,32 @@ class DilatedAttention(nn.Module):
 
 class TreeBlock(nn.Module):
     """Pre-norm residual block with a skip tap -- the v3 GatedBlock shape,
-    with DilatedAttention in place of the gated conv."""
+    with DilatedAttention in place of the gated conv. With mlp=True ('v4m')
+    a transformer-style 4x GELU MLP sub-layer follows the attention; the
+    skip tap then carries attention + MLP contributions, since the head
+    only sees the skip sum and a last-block MLP would otherwise be dead."""
 
-    def __init__(self, channels: int, window: int, dilation: int):
+    def __init__(self, channels: int, window: int, dilation: int,
+                 mlp: bool=False):
         super(TreeBlock, self).__init__()
         self.norm = nn.LayerNorm(channels)
         self.attn = DilatedAttention(channels, window, dilation)
         self.skip = nn.Linear(channels, channels)
+        if mlp:
+            self.mlp_norm = nn.LayerNorm(channels)
+            self.mlp = nn.Sequential(nn.Linear(channels, 4 * channels),
+                                     nn.GELU(),
+                                     nn.Linear(4 * channels, channels))
+        else:
+            self.mlp = None
 
     def forward(self, x: Tens):
         h = self.attn(self.norm(x))
-        return x + h, self.skip(h)
+        y = x + h
+        if self.mlp is not None:
+            m = self.mlp(self.mlp_norm(y))
+            return y + m, self.skip(h + m)
+        return y, self.skip(h)
 
 
 class TreeAttentionNet(nn.Module):
@@ -156,10 +171,11 @@ class TreeAttentionNet(nn.Module):
     normalized sum of every block's skip tap, as in the v2/v3 stacks.
     External interface is (B, C, T) to match the other filter banks."""
 
-    def __init__(self, channels: int, window: int, levels: int, cycles: int):
+    def __init__(self, channels: int, window: int, levels: int, cycles: int,
+                 mlp: bool=False):
         super(TreeAttentionNet, self).__init__()
         self.blocks = nn.ModuleList(
-            [TreeBlock(channels, window, dilation=window ** l)
+            [TreeBlock(channels, window, dilation=window ** l, mlp=mlp)
              for _ in range(cycles) for l in range(levels)])
         self.out_norm = nn.LayerNorm(channels)
         self.window, self.levels, self.cycles = window, levels, cycles

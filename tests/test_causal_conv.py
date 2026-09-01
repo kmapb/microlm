@@ -160,7 +160,7 @@ def _make_v2(V=256, C=16, T=32, arch='v2'):
                    kernel_size=2, arch=arch)
 
 
-@pytest.mark.parametrize('arch', ['v2', 'v3', 'v4', 't1'])
+@pytest.mark.parametrize('arch', ['v2', 'v3', 'v4', 'v4m', 't1'])
 def test_v2_is_causal(arch):
     """Two inputs identical up to position t must produce identical
     predictions before t -- the functional causality test, covering the

@@ -102,12 +102,13 @@ def main(argv: List[str]):
     parser.add_argument('--lr-decay-steps', type=int, default=100_000,
                         help='Steps over which LR cosine-decays to a 10%% floor')
     parser.add_argument('--arch', type=str, default='v2',
-                        choices=['v1', 'v2', 'v3', 'v4', 't1'],
+                        choices=['v1', 'v2', 'v3', 'v4', 'v4m', 't1'],
                         help='v1 = original blocks; v2 = GLU gating + skip '
                              'aggregation + tied embeddings; v3 = v2 without '
                              'positional embeddings; v4 = dilated QKV '
-                             'attention on the wavenet tree; t1 = GPT-2-style '
-                             'transformer baseline (height = layer count)')
+                             'attention on the wavenet tree; v4m = v4 with '
+                             'transformer-style MLP sub-layers; t1 = GPT-2-'
+                             'style transformer baseline (height = layers)')
     parser.add_argument('--window', type=int, default=8,
                         help='v4: attention candidates per level')
     parser.add_argument('--cycles', type=int, default=3,
@@ -146,9 +147,9 @@ def main(argv: List[str]):
     pl.seed_everything(args.random_seed)
     # saves top-K checkpoints based on "val_loss" metric
     arch_tag = args.arch
-    if args.arch == 'v4':
+    if args.arch.startswith('v4'):
         # The n-ariness sweep needs distinguishable runs/checkpoints.
-        arch_tag = "v4w{}x{}".format(args.window, args.cycles)
+        arch_tag = "{}w{}x{}".format(args.arch, args.window, args.cycles)
     filename_template = "ckpt-{}-k{}-d{}".format(
         arch_tag, args.kernel_size, args.embedding_width)
     checkpoint_callback = PLCB.ModelCheckpoint(
