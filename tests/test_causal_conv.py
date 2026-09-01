@@ -331,6 +331,24 @@ def test_dilated_attention_matches_slot_reference():
         tree_attention.BIAS_MAX_LEN = saved
 
 
+def test_flops_estimates_are_sane():
+    """Ordering checks on the analytic accounting: MLPs cost more than none,
+    full attention's cost grows with context while the tree's doesn't."""
+    def fpt(**kw):
+        base = dict(vocab_size=1000, dim=64, fc_dim=64, max_length=1024,
+                    kernel_size=3, window=8, cycles=2)
+        base.update(kw)
+        return SummNet(arch=kw.pop('arch'), **{k: v for k, v in base.items()
+                                               if k != 'arch'}).fwd_flops_per_token
+
+    assert fpt(arch='v4m') > fpt(arch='v4')
+    assert fpt(arch='t1', max_length=8192) > fpt(arch='t1', max_length=1024)
+    # Same derived height (4 levels at w=8) -> per-token cost flat in T.
+    assert fpt(arch='v4', max_length=4096) == fpt(arch='v4', max_length=1024)
+    for arch in ('v1', 'v2', 'v3', 'v4', 'v4m', 't1'):
+        assert fpt(arch=arch) > 0
+
+
 def test_height_derived_from_context():
     """Default height is the smallest stack whose receptive field
     (kernel_size ** height) covers max_length."""

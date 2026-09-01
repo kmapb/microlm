@@ -16,6 +16,39 @@ from typing import List, cast
 MLFLOW_URI = os.environ.get('MLFLOW_TRACKING_URI', 'https://mlflow.pbd.vc')
 
 
+class ThroughputCallback(pl.Callback):
+    """Log measured steps/s, tokens/s, and the implied GFLOP/s every
+    `every` train batches -- long-context comparisons need loss-vs-seconds
+    and loss-vs-FLOPs, not just loss-vs-steps."""
+
+    def __init__(self, every: int = 100):
+        self.every = every
+        self._t0 = None
+        self._tokens0 = 0
+
+    def on_fit_start(self, trainer, pl_module):
+        if trainer.logger:
+            trainer.logger.log_metrics(
+                {'fwd_flops_per_token': pl_module.fwd_flops_per_token}, step=0)
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if batch_idx % self.every:
+            return
+        import time
+        now = time.time()
+        tokens = pl_module.total_train_tokens
+        if self._t0 is not None and trainer.logger:
+            dt = now - self._t0
+            tps = (tokens - self._tokens0) / dt
+            trainer.logger.log_metrics(
+                {'steps_per_sec': self.every / dt,
+                 'tokens_per_sec': tps,
+                 'train_gflops_per_sec':
+                     3.0 * pl_module.fwd_flops_per_token * tps / 1e9},
+                step=trainer.global_step)
+        self._t0, self._tokens0 = now, tokens
+
+
 class FailSoftMLFlowLogger(PLLG.MLFlowLogger):
     """A metrics-DB blip must not kill a training run (a ~3-minute managed-
     Postgres failover took down 6 GPU-hours on 2026-08-29): drop the points
@@ -185,7 +218,7 @@ def main(argv: List[str]):
                          devices=1,
                          max_time={'hours': args.max_hours},
                          gradient_clip_val=1.0,
-                         callbacks=[checkpoint_callback],
+                         callbacks=[checkpoint_callback, ThroughputCallback()],
                          val_check_interval=val_check_interval,
                          log_every_n_steps=100,
                          limit_train_batches=args.limit_train_batches,

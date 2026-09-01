@@ -7,6 +7,7 @@ from torch import Tensor as Tens
 from torch.nn import functional as F
 import pytorch_lightning as pl
 import util
+import flops
 from tree_attention import TreeAttentionNet
 from typing import cast, Dict, Optional
 import datetime as dt
@@ -231,6 +232,7 @@ class SummNet(pl.LightningModule):
         self.dim = dim
         self.max_length = max_length
         self.total_train_tokens = 0
+        self.fwd_flops_per_token = flops.fwd_flops_per_token(self.hparams)
         # 'v1' is the pre-2026-08-27 architecture; checkpoints saved before
         # the arch hparam existed default to it and keep loading.
         assert arch in ('v1', 'v2', 'v3', 'v4', 'v4m', 't1'), f"unknown arch {arch!r}"
@@ -322,7 +324,13 @@ class SummNet(pl.LightningModule):
         # to (bare training_step calls in tests, `--logger none`). Throttled:
         # a row per step is 55k inserts/run of pure metrics-DB churn.
         if self.logger is not None and batch_idx % 100 == 0:
-            self.logger.log_metrics({'train_tokens': self.total_train_tokens})
+            self.logger.log_metrics({
+                'train_tokens': self.total_train_tokens,
+                # 3x forward: the usual fwd+bwd training approximation.
+                # Enables loss-vs-compute plots across architectures.
+                'train_gflops': 3.0 * self.fwd_flops_per_token
+                                * self.total_train_tokens / 1e9,
+            })
         return loss
 
     def _defrag(self):
