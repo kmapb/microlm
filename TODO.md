@@ -37,7 +37,14 @@ zero-shot:
     v4 n=8 (4 hops)       3.673 / 3.677 / 4.481   <- recovers ~27% of the premium
     v4 n=64 (2 hops)      3.546 / 3.557 / 4.307   <- recovers ~57% of the premium
     v4 n=4096 (flat NoPE) 3.659 / 3.673 / --      <- attn-only transformer; trend inverts
+    v4 n=16 (3 hops)      3.595 / 3.605 / --
+    v4 n=256 (2 hops)     3.521 / 3.534 / --      <- base-tree champion; 63%
     v4m n=64 (+MLPs)      3.423 / 3.434 / --      <- ~86% recovered, at -6% params
+
+Phase 3 in flight (2026-09-02): v4m w=256 vs t1 at 16k context, equal
+1.8B-token budget, batch 2x16384. Smoke: v4m 153k tok/s / 175M FLOPs/tok
+vs t1 110k tok/s / 400M FLOPs/tok (t1 +15M params from its 16k PE table)
+-- the wall-clock crossover has arrived; the runs measure the loss axis.
     t1 (GPT-2-ish, 9x768) 3.365 / 3.379 / 4.224   <- attention premium: 0.42 nats
 
 n-ariness sweep (2026-08-29): halving relay hops (4 -> 2) roughly doubled
