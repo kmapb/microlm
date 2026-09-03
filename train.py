@@ -54,6 +54,25 @@ class FailSoftMLFlowLogger(PLLG.MLFlowLogger):
     Postgres failover took down 6 GPU-hours on 2026-08-29): drop the points
     and keep training instead of raising through Lightning."""
 
+    @property
+    def experiment(self):
+        # Setup is the one call the drop-and-continue methods can't shield:
+        # a server blip here killed the 2026-09-02 t1-16k run before step 0.
+        # Retry across a few minutes -- longer than the observed outages --
+        # then fail loudly (a genuinely down server should still stop us).
+        import time
+        last = None
+        for attempt in range(6):
+            try:
+                return PLLG.MLFlowLogger.experiment.fget(self)
+            except Exception as e:
+                last = e
+                wait = min(60, 5 * 2 ** attempt)
+                print(f"[mlflow] experiment setup failed "
+                      f"(attempt {attempt + 1}/6, retry in {wait}s): {e}")
+                time.sleep(wait)
+        raise last
+
     def log_metrics(self, metrics, step=None):
         try:
             super().log_metrics(metrics, step)
