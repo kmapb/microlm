@@ -41,10 +41,21 @@ zero-shot:
     v4 n=256 (2 hops)     3.521 / 3.534 / --      <- base-tree champion; 63%
     v4m n=64 (+MLPs)      3.423 / 3.434 / --      <- ~86% recovered, at -6% params
 
-Phase 3 in flight (2026-09-02): v4m w=256 vs t1 at 16k context, equal
-1.8B-token budget, batch 2x16384. Smoke: v4m 153k tok/s / 175M FLOPs/tok
-vs t1 110k tok/s / 400M FLOPs/tok (t1 +15M params from its 16k PE table)
--- the wall-clock crossover has arrived; the runs measure the loss axis.
+Phase 3 verdict (2026-09-03), 16k context, equal 1.8B-token budget:
+
+    v4m w=256  best val 3.460 / test 3.475   84.3M   175M FLOPs/tok
+    t1         best val 3.439 / test 3.455   99.3M   400M FLOPs/tok
+
+The 4k quality gap (0.058 nats) shrank to ~0.020 at 16k -- inside
+run-to-run noise territory -- while the tree used 44% of the FLOPs and
+ran 1.39x faster at matched kernel conditions (153k vs 110k tok/s in
+clean smokes; t1's clean end-to-end run sustained 84k). Both models
+lost loss going 4k -> 16k (t1 +0.074, v4m +0.037: fineweb docs are
+short, so the long window mostly adds cost, and t1 pays extra via its
+16k PE table). Caveat: v4m-16k's end-to-end wall-clock was polluted by
+the MLflow outage (synchronous logging stalls); its clean number comes
+from the smoke test. Ops note: mlflow.pbd.vc had a hard 503 outage on
+09-03; t1-16k ran on tensorboard logging, needs backfill on recovery.
     t1 (GPT-2-ish, 9x768) 3.365 / 3.379 / 4.224   <- attention premium: 0.42 nats
 
 n-ariness sweep (2026-08-29): halving relay hops (4 -> 2) roughly doubled
