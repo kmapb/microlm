@@ -110,14 +110,13 @@ readout is val/test delta vs fineweb-edu-k3-d1024's 4.073/4.082.
 
 Two work items that gate a ~1B-param run, in order:
 
-1. **Data-path throughput first.** Current runs sit at ~20-50% GPU util
-   because a single in-process tokenizer feeds the A100. Before any longer
-   run, fix the input pipeline: either (a) pre-tokenize once to a
-   memory-mapped uint16 token file on the datasettes mount (~2 bytes/token,
-   so 20B tokens = 40GB; training then reads dense windows with zero
-   tokenization cost -- simplest and probably best), or (b) proper
-   multi-worker loading with per-worker stream shards. Target: >90% util.
-   Assume this lands before sizing the big run's wall-clock.
+1. **Data-path throughput: DONE (2026-09-04).** Option (a) shipped: prepack
+   to memmapped uint16 (scripts/prepack.py, --packed default in train.py).
+   fineweb-edu sample-10BT packs to 19GB / 10.2B tokens on the mount.
+   Measured: 97-98% GPU util on all configs; v4m-16k 143k tok/s end-to-end
+   (kernel-only smoke was 153k -> ~6% data tax, was ~45%); t1-16k 101k.
+   Clean 16k wall-clock ratio, tree vs transformer: 1.42x. Bonus: map-style
+   windows give true window shuffling + multi-worker loading.
 
 2. **Hyperparameter autoresearch for the ~1B parameterization.** Questions
    to settle with a small scaling ladder (e.g. 94M -> 250M -> 1B) rather
