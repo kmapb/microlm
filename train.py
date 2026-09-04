@@ -126,6 +126,10 @@ def main(argv: List[str]):
     parser.add_argument('--streaming', default=True,
                         action=argparse.BooleanOptionalAction,
                         help='Stream the dataset instead of downloading it first')
+    parser.add_argument('--packed', default=True,
+                        action=argparse.BooleanOptionalAction,
+                        help='Train from the pre-tokenized pack (built on '
+                             'first use); overrides --streaming')
     parser.add_argument('--max-hours', type=float, default=0.5,
                         help='Maximum number of hours to train')
     parser.add_argument('--max-epochs', type=int, default=2,
@@ -253,10 +257,15 @@ def main(argv: List[str]):
                                             run_id=args.mlflow_run_id),
                          )
 
-    stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
-    dm = stream_factory(args.dataset, args.dataset_cfg,
-                        max_length=args.max_length,
-                        batch_size=args.batch_size)
+    if args.packed:
+        dm = text_data.PackedDataModule(args.dataset, args.dataset_cfg,
+                                        max_length=args.max_length,
+                                        batch_size=args.batch_size)
+    else:
+        stream_factory = text_data.StreamingTextDataModule if args.streaming else text_data.BasicDataModule
+        dm = stream_factory(args.dataset, args.dataset_cfg,
+                            max_length=args.max_length,
+                            batch_size=args.batch_size)
     if not args.test_only:
         trainer.fit(model, dm, ckpt_path=args.checkpoint_restore)
         final = paths.OUTPUT_ROOT / 'full-run-d{}-h{}.ckpt'.format(

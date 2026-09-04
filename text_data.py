@@ -3,6 +3,7 @@
 # import time.
 import paths  # noqa: F401  (imported for its import-time side effects)
 
+import numpy as np
 import torch
 import datasets
 import pytorch_lightning as pl
@@ -136,6 +137,133 @@ def load_dataset(name, config, split='train', streaming=True, shuffle=True, num_
         else:
             shuf = ds.shuffle()
     return shuf
+
+
+def packed_path(name, config, split):
+    """Where the pre-tokenized uint16 stream for (dataset, config, split)
+    lives -- on the shared data root, so one pack serves every run."""
+    safe = f"{name}_{config}_{split}".replace('/', '--')
+    return paths.DATA_ROOT / 'packed' / f"{safe}.u16"
+
+
+def _pack_rows(id_lists, out_path, sep_id):
+    """Write id-lists as one flat uint16 stream, [SEP]-joined; skip empties.
+    Writes to a temp file and renames, so a partial pack never looks done."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_suffix('.tmp')
+    total = 0
+    with open(tmp, 'wb') as fh:
+        for ids in id_lists:
+            if not ids:
+                continue
+            arr = np.empty(len(ids) + 1, dtype=np.uint16)
+            arr[:-1] = ids
+            arr[-1] = sep_id
+            fh.write(arr.tobytes())
+            total += arr.size
+    tmp.rename(out_path)
+    return total
+
+
+def prepack(name, config, split='train', num_proc=16, shuffle_seed=1337,
+            force=False):
+    """Tokenize a whole split once (parallel) into a packed uint16 file.
+    Documents are shuffled with a fixed seed before packing, so the stream
+    order is decorrelated but reproducible. Returns the file path; no-op if
+    the pack already exists."""
+    out = packed_path(name, config, split)
+    if out.exists() and not force:
+        return out
+    tokzr = _tokenizer()
+    assert len(tokzr) < 2 ** 16, "uint16 pack requires vocab < 65536"
+
+    rname, rcfg = resolve_dataset(name, config)
+    ds = datasets.load_dataset(rname, rcfg, split=split, streaming=False,
+                               num_proc=num_proc)
+    ds = ds.shuffle(seed=shuffle_seed)
+
+    def enc(batch):
+        return {'ids': tokzr(batch['text'],
+                             add_special_tokens=False)['input_ids']}
+
+    tok = ds.map(enc, batched=True, num_proc=num_proc,
+                 remove_columns=ds.column_names, desc=f"tokenize {split}")
+
+    def rows():
+        for batch in tok.iter(batch_size=1000):
+            yield from batch['ids']
+
+    total = _pack_rows(rows(), out, tokzr.sep_token_id)
+    print(f"packed {total/1e9:.2f}B tokens -> {out}")
+    return out
+
+
+class PackedFileWindows(torch.utils.data.Dataset):
+    """Map-style dense windows over a packed uint16 token file. Being
+    map-style (unlike the streaming pipeline) buys window-level shuffling
+    and multi-worker loading for free."""
+
+    def __init__(self, path, max_length, start_frac=0.0, end_frac=1.0):
+        self.data = np.memmap(path, dtype=np.uint16, mode='r')
+        self.L = max_length
+        n = len(self.data) // max_length
+        self.lo = int(n * start_frac)
+        self.hi = int(n * end_frac)
+
+    def __len__(self):
+        return self.hi - self.lo
+
+    def __getitem__(self, i):
+        j = (self.lo + i) * self.L
+        ids = torch.from_numpy(np.asarray(self.data[j:j + self.L],
+                                          dtype=np.int64))
+        return {'input_ids': ids, 'num_tokens': self.L}
+
+
+class PackedDataModule(pl.LightningDataModule):
+    """Trains from pre-packed token files: zero tokenization at train time.
+    Builds missing packs on first use. Datasets without validation/test
+    splits get fractional 80/10/10 slices of the packed train stream (note:
+    a different val partition than the streaming pipeline's, so val losses
+    aren't comparable across the two data paths)."""
+
+    def __init__(self, dataset_name, dataset_cfg, max_length=4096,
+                 batch_size=8, num_workers=8):
+        super().__init__()
+        self.dataset_name = dataset_name
+        self.dataset_cfg = dataset_cfg
+        self.max_length = max_length
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+    def setup(self, stage=None):
+        L = self.max_length
+        train_p = prepack(self.dataset_name, self.dataset_cfg, 'train')
+        try:
+            val_p = prepack(self.dataset_name, self.dataset_cfg, 'validation')
+            test_p = prepack(self.dataset_name, self.dataset_cfg, 'test')
+            self.train_ds = PackedFileWindows(train_p, L)
+            self.val_ds = PackedFileWindows(val_p, L)
+            self.test_ds = PackedFileWindows(test_p, L)
+        except ValueError:
+            self.train_ds = PackedFileWindows(train_p, L, 0.0, 0.8)
+            self.test_ds = PackedFileWindows(train_p, L, 0.8, 0.9)
+            self.val_ds = PackedFileWindows(train_p, L, 0.9, 1.0)
+
+    def _loader(self, ds, shuffle):
+        return torch.utils.data.DataLoader(
+            ds, batch_size=self.batch_size, shuffle=shuffle,
+            num_workers=self.num_workers, pin_memory=True,
+            drop_last=shuffle, persistent_workers=self.num_workers > 0)
+
+    def train_dataloader(self):
+        return self._loader(self.train_ds, shuffle=True)
+
+    def val_dataloader(self):
+        return self._loader(self.val_ds, shuffle=False)
+
+    def test_dataloader(self):
+        return self._loader(self.test_ds, shuffle=False)
 
 
 class BasicDataModule(pl.LightningDataModule):

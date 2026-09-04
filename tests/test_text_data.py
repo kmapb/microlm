@@ -73,6 +73,33 @@ def test_packed_windows_span_documents():
         [[1, 2, 3], [4, 5, 6]]  # trailing [7, 99] dropped
 
 
+def test_pack_write_and_window_read(tmp_path):
+    """_pack_rows + PackedFileWindows roundtrip: [SEP]-joined stream, empty
+    rows skipped, exact windows, fractional slicing, tail dropped."""
+    out = tmp_path / 'toy.u16'
+    total = text_data._pack_rows([[1, 2, 3], [4, 5], [], [6]], out, 99)
+    assert total == 9  # 1 2 3 99 4 5 99 6 99
+
+    ds = text_data.PackedFileWindows(out, max_length=3)
+    assert len(ds) == 3
+    assert ds[0]['input_ids'].tolist() == [1, 2, 3]
+    assert ds[1]['input_ids'].tolist() == [99, 4, 5]
+    assert ds[2]['input_ids'].tolist() == [99, 6, 99]
+    assert ds[0]['input_ids'].dtype == torch.int64
+    assert ds[0]['num_tokens'] == 3
+
+    lo = text_data.PackedFileWindows(out, max_length=3, start_frac=0, end_frac=2 / 3)
+    hi = text_data.PackedFileWindows(out, max_length=3, start_frac=2 / 3, end_frac=1)
+    assert len(lo) == 2 and len(hi) == 1
+    assert hi[0]['input_ids'].tolist() == [99, 6, 99]
+
+    # Default collation stacks windows into dense (B, L) batches.
+    loader = torch.utils.data.DataLoader(ds, batch_size=3)
+    batch = next(iter(loader))
+    assert batch['input_ids'].shape == (3, 3)
+    assert (batch['num_tokens'] == 3).all()
+
+
 @pytest.mark.network
 def test_streaming_batches_are_well_formed():
     batch_size, max_length = 4, 128
