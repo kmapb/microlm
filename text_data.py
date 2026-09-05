@@ -20,6 +20,10 @@ DATASET_ALIASES = {
     "c4": "allenai/c4",
     "openwebtext": "Skylion007/openwebtext",
     "tiny_stories": "roneneldan/TinyStories",
+    # deepmind/pg19 is script-based (dead on modern hub); this parquet
+    # mirror serves the same books with train/validation/test splits.
+    "pg19": "emozilla/pg19",
+    "deepmind/pg19": "emozilla/pg19",
 }
 
 # Configs moved too: wikitext's `-v1` variants were the script's names for what
