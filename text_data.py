@@ -190,7 +190,9 @@ def prepack(name, config, split='train', num_proc=16, shuffle_seed=1337,
         return {'ids': tokzr(batch['text'],
                              add_special_tokens=False)['input_ids']}
 
-    tok = ds.map(enc, batched=True, num_proc=num_proc,
+    # Small map batches: rows can be entire books (megabytes of text), and
+    # the default 1000-row batch across num_proc workers OOM-kills workers.
+    tok = ds.map(enc, batched=True, batch_size=16, num_proc=num_proc,
                  remove_columns=ds.column_names, desc=f"tokenize {split}")
 
     def rows():
