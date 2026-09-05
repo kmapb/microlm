@@ -121,8 +121,11 @@ def main(argv: List[str]):
                         epilog='May the odds be ever in your favor.')
     parser.add_argument('--dataset', type=str, default='Salesforce/wikitext',
                         help='Name of Huggingface dataset')
-    parser.add_argument('--dataset-cfg', type=str, default='wikitext-103-raw-v1',
-                        help='Config of Huggingface dataset')
+    parser.add_argument('--dataset-cfg', type=str, default=None,
+                        help='Config of Huggingface dataset (defaults to '
+                             'wikitext-103-raw-v1 only for the default '
+                             'dataset -- a stale paired default once sent '
+                             'a wikitext config to pg19)')
     parser.add_argument('--streaming', default=True,
                         action=argparse.BooleanOptionalAction,
                         help='Stream the dataset instead of downloading it first')
@@ -182,6 +185,8 @@ def main(argv: List[str]):
                         help='Resume logging into this existing MLflow run '
                              '(pairs with --checkpoint-restore)')
     args = parser.parse_args(argv)
+    if args.dataset == 'Salesforce/wikitext' and args.dataset_cfg is None:
+        args.dataset_cfg = 'wikitext-103-raw-v1'
 
     # dataset: 'Salesforce/wikitext', dataset_cfg: 'wikitext-2-raw-v1', # quick test
     # dataset: 'Salesforce/wikitext', dataset_cfg: 'wikitext-103-raw-v1',
