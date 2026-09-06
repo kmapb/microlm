@@ -1,217 +1,94 @@
-# TODO: training-quality fixes
+# microlm: results ledger and work queue
 
-Five defects found in review (2026-08-26), roughly in order of expected impact
-on model quality. **All five are now fixed** (see the `Fix N/5:` commits);
-checkpoints from before that series were trained against a different objective
-and aren't comparable. What each was:
+Reorganized 2026-09-07 after three weeks of appends. History: the repo's
+original five training defects (logit LeakyReLU, pad-loss, lr=1e-5, no
+packing, oversized receptive field) were found and fixed 2026-08-26/27 --
+see the `Fix N/5:` commits. Everything below postdates those fixes.
 
-1. **LeakyReLU on the output logits** -- the head fed cross-entropy activations
-   with the negative half squashed 100x, so the model could never confidently
-   rule a token out. Fixed: the final Linear's output is the logits, no
-   activation (also in the legacy `token_rnn.py` / `conv_text.py`).
-2. **Loss computed over padding** -- every position after a document's end
-   taught "predict [PAD]". Fixed: `pad_token_id` is a SummNet hparam used as
-   `ignore_index`, making the loss a per-real-token mean. (Mostly moot now
-   that batches are packed, but it guards any padded path.)
-3. **lr=1e-5, constant** -- a fine-tuning rate for a from-scratch model.
-   Fixed: peak `--lr` 3e-4, linear `--warmup-steps`, cosine decay to a 10%
-   floor over `--lr-decay-steps`, `gradient_clip_val=1.0`.
-4. **No sequence packing** -- rows tokenized/padded individually, so training
-   was mostly short contexts and pad slots. Fixed: `PackedWindows` joins
-   documents with `[SEP]` and emits dense fixed-`max_length` windows; zero
-   padding, and no more `[CLS]` train/inference mismatch with `chat.py`.
-5. **Receptive field vastly exceeding the context** -- k=3/height=11 put the
-   top layers' dilations past 4096; they convolved only left-padding. Fixed:
-   height defaults to the smallest stack covering `max_length` (8 for the
-   defaults); explicit overshoots warn.
+## Results ledger
 
-## Proposed: gated blocks + skip aggregation (arch v2)
+**4k-context architecture ladder** (fineweb-edu sample-10BT, 1.8B tokens,
+32,768 tokens/step, lr 3e-4; val / fineweb test / wikitext-103 zero-shot):
 
-**Done, and measured** (2026-08-28). Controlled ladder on fineweb-edu, ~90M
-params, 1.8B tokens, identical recipe -- final val / fineweb test / wikitext
-zero-shot:
+    v1  baseline convs        4.073 / 4.082 / 5.007
+    v2  +GLU, skip, tie       3.895 / 3.903 / 4.812
+    v3  v2 minus PE           3.786 / 3.793 / 4.693   reference conv arch
+    v4  QKV tree w=8  (4 hop) 3.673 / 3.677 / 4.481
+    v4  w=16 (3 hops)         3.595 / 3.605 /   --
+    v4  w=64 (2 hops)         3.546 / 3.557 / 4.307
+    v4  w=256 (2 hops)        3.521 / 3.534 /   --    base-tree champion
+    v4  w=4096 (flat, NoPE)   3.659 / 3.673 /   --    trend inverts (no pos.)
+    v4m w=64 +MLPs (d768)     3.423 / 3.434 /   --    ~86% of premium, -6% params
+    t1  transformer (9x768)   3.365 / 3.379 / 4.224   the attention premium: 0.42
 
-    v1 (baseline convs)   4.073 / 4.082 / 5.007
-    v2 (+GLU, skip, tie)  3.895 / 3.903 / 4.812
-    v3 (v2 minus PE)      3.786 / 3.793 / 4.693   <- reference conv arch
-    v4 n=8 (4 hops)       3.673 / 3.677 / 4.481   <- recovers ~27% of the premium
-    v4 n=64 (2 hops)      3.546 / 3.557 / 4.307   <- recovers ~57% of the premium
-    v4 n=4096 (flat NoPE) 3.659 / 3.673 / --      <- attn-only transformer; trend inverts
-    v4 n=16 (3 hops)      3.595 / 3.605 / --
-    v4 n=256 (2 hops)     3.521 / 3.534 / --      <- base-tree champion; 63%
-    v4m n=64 (+MLPs)      3.423 / 3.434 / --      <- ~86% recovered, at -6% params
+Decomposition of the 0.42-nat conv->transformer premium: content routing
+~27%, fan-out (4->2 hops) ~+30%, MLP capacity ~+29%, residual ~14%.
+Side findings: NoPE beats learned PE for all tree/conv archs; free-running
+repetition loops strengthen with window size (copy circuits) and are
+tamed by MLPs + sampler penalties; the w=4096 point is confounded (no
+positional signal at all) -- treat as an attn-only NoPE transformer.
 
-Phase 3 verdict (2026-09-03), 16k context, equal 1.8B-token budget:
+**16k context** (equal 1.8B tokens, 2x16384/step):
 
-    v4m w=256  best val 3.460 / test 3.475   84.3M   175M FLOPs/tok
-    t1         best val 3.439 / test 3.455   99.3M   400M FLOPs/tok
+    v4m w=256   val 3.460 / test 3.475   84.3M    175M FLOPs/tok   143k tok/s
+    t1          val 3.439 / test 3.455   99.3M    400M FLOPs/tok   101k tok/s
 
-The 4k quality gap (0.058 nats) shrank to ~0.020 at 16k -- inside
-run-to-run noise territory -- while the tree used 44% of the FLOPs and
-ran 1.39x faster at matched kernel conditions (153k vs 110k tok/s in
-clean smokes; t1's clean end-to-end run sustained 84k). Both models
-lost loss going 4k -> 16k (t1 +0.074, v4m +0.037: fineweb docs are
-short, so the long window mostly adds cost, and t1 pays extra via its
-16k PE table). Caveat: v4m-16k's end-to-end wall-clock was polluted by
-the MLflow outage (synchronous logging stalls); its clean number comes
-from the smoke test. Ops note: mlflow.pbd.vc had a hard 503 outage on
-09-03; t1-16k ran on tensorboard logging, needs backfill on recovery.
-    t1 (GPT-2-ish, 9x768) 3.365 / 3.379 / 4.224   <- attention premium: 0.42 nats
+Gap shrank 0.058 -> ~0.020 nats (noise territory) at 44% of the FLOPs and
+1.42x speed. Both lose loss 4k->16k: fineweb docs are short (5% of tokens
+in docs >16k), so long context is mostly cost here.
 
-n-ariness sweep (2026-08-29): halving relay hops (4 -> 2) roughly doubled
-the recovered premium at equal params/depth/FLOPs-ish -- hop count looks
-like the dominant term. Natural next points: window=4096 (1 hop; isolates
-the MLP/macro-structure confound vs t1 since mixing becomes full causal
-attention inside the v4 block structure), and v4m (+MLPs). Also observed:
-free-running repetition loops strengthen monotonically with window size
-even as loss improves -- copy circuits get stronger; scripts/sample.py's
-rep-penalty partially compensates.
+**64k context, PG19** (equal 1.8B tokens, 1x65536/step, one epoch) -- the
+first true long-document capability test, and the tree's first outright win:
 
-v4 notes (2026-08-29): crossed below v3 at step 7.5k, gap widened
-monotonically to -0.113 final; vs t1 the deficit plateaued at ~0.31 by
-mid-run. Confound: t1 blocks have 4x GELU MLPs, v4 blocks are mixing-only
--- a "v4m" (+MLPs, params rebalanced) would separate topology from
-capacity. v4 also shows an attention-flavored sampling pathology (topical
-repetition loops) the convs lacked. Run crashed once at step 43k when the
-mlflow Postgres went read-only (logger exceptions are fatal in Lightning;
-consider fail-soft wrapping before long runs) -- resumed cleanly via
---checkpoint-restore + --mlflow-run-id.
+    v4m w=256   val 3.578 / test 3.459   157k tok/s    3.0h    175M F/tok
+    t1          val 4.118 / test 4.019    42k tok/s   11.8h   1079M F/tok
 
-v3 is the conv architecture going forward; the 0.42-nat gap to t1 at equal
-params/data is the target for dilated attention (v4). Original design notes
-(`arch='v2'` hparam; absent-key default `'v1'` keeps old checkpoints
-loading):
++0.54 nats at 3.9x speed and ~1/6 FLOPs; t1's slow start (65k-position
+attention + 50M-param PE table on 1 seq/step) never recovers in-budget.
+Caveats: iso-compute would let t1 close much of the gap (which is the
+tree's argument, restated); fair modern baseline would use RoPE, not
+GPT-2 learned PE. Subjectively v4m writes coherent Victorian prose with
+correct dialogue attribution and abbreviation-expansion coreference
+("the Rev." -> "The Reverend Mr. Jordan"); t1 derails ("cried the door").
 
-1. **GLU gating** (Dauphin et al. 2017). Replace each block's
-   `conv -> leaky_relu` with a single dilated causal conv to `2*dim` channels,
-   split into value/gate halves: `v, g = conv(x).chunk(2, dim=1); h = v *
-   sigmoid(g)`. The linear (untanh'd) value path is GCNN's headline result
-   over WaveNet's tanh x sigmoid -- keeps a linear gradient path through depth.
-2. **Pre-norm residual blocks.** `x + f(LayerNorm(x))` instead of the current
-   post-norm `LayerNorm(x + f(x))`; the residual stream stays un-normalized,
-   which trains more stably and composes with skip taps.
-3. **Skip aggregation** (WaveNet). Each block also emits `skip_l = W_l h_l`
-   (per-layer 1x1 conv); the head consumes `LayerNorm(sum_l skip_l)` instead
-   of the top of the stack. Gives the loss a path-length-1 gradient to every
-   depth and lets shallow layers (n-gram features) feed the prediction
-   directly.
+**Batch/LR sweep** (2026-09-07; v4m-w256 @4k, loss at equal 650M tokens):
 
-Plus **weight tying** to pay for it: tie the head's final `Linear(fc_dim,
-vocab)` to the embedding table (works because fc_dim == dim == 1024). Param
-arithmetic at d=1024/h=8: GLU doubles conv width (+25M), skip 1x1s +8M,
-tying -30M -> ~93M total, within 4% of v1's 89.8M, so the fineweb comparison
-stays fair at the same 1.8B-token budget.
+    32k tok/step (b8):  lr 3e-4 -> 3.630   lr 6e-4 -> 3.545
+    65k tok/step (b16): lr 3e-4 -> 3.736   6e-4 -> 3.617   1.2e-3 -> 3.556
+    131k (b32): OOM in backward at this model size on one A100.
 
-Controlled experiment: identical recipe (3e-4, warmup 1k, cosine to floor at
-55k steps, fineweb-edu sample-10BT, single pass), same MLflow experiment;
-readout is val/test delta vs fineweb-edu-k3-d1024's 4.073/4.082.
+Verdicts: (1) the historical recipe was under-LR'd -- 6e-4 at the standard
+batch is worth ~0.085 nats at 650M tokens (uniform across the ladder, so
+past comparisons stand, but future runs should use 6e-4); (2) the linear-
+scaling diagonal (b8@6e-4 ~= b16@1.2e-3) says we are at/below critical
+batch size through 65k tokens/step -- the 1B run can go wide; (3) loss was
+still improving with LR at both batches, so the true optimum may be
+slightly higher; probe 1.2e-3@b8 before locking the 1B recipe.
 
-## Scaling to ~1B (planned 2026-08-27)
+## Dialed recipe (for the 1B ladder)
 
-Two work items that gate a ~1B-param run, in order:
+arch v4m, window 256, cycles per context (2 hops), d=768+ scaled, NoPE,
+tied embeddings w/ 0.02 init, packed data path (98% GPU util), lr 6e-4
+(pending one more probe), warmup ~33M tokens, cosine to 10% floor at
+budget end, grad clip 1.0, tokens/step up to 65k per A100.
 
-1. **Data-path throughput: DONE (2026-09-04).** Option (a) shipped: prepack
-   to memmapped uint16 (scripts/prepack.py, --packed default in train.py).
-   fineweb-edu sample-10BT packs to 19GB / 10.2B tokens on the mount.
-   Measured: 97-98% GPU util on all configs; v4m-16k 143k tok/s end-to-end
-   (kernel-only smoke was 153k -> ~6% data tax, was ~45%); t1-16k 101k.
-   Clean 16k wall-clock ratio, tree vs transformer: 1.42x. Bonus: map-style
-   windows give true window shuffling + multi-worker loading.
+## Work queue
 
-2. **Hyperparameter autoresearch for the ~1B parameterization.** Questions
-   to settle with a small scaling ladder (e.g. 94M -> 250M -> 1B) rather
-   than vibes: deeper vs wider vs both; whether to adopt *repeated dilation
-   cycles* (WaveNet-style: dilations 1..k^8 repeated x2-3) so depth can grow
-   without the receptive field exploding past useful context; context length
-   (8k? 16k?); LR scaling with width (muP-style transfer or an empirical
-   sweep at 250M); batch size / tokens-per-step at 1B. Starting point for
-   the arithmetic at k=3, GLU, tied embeddings: dim 3072 x 12 blocks is
-   ~0.9B params; dim 2048 x (9-block cycle x 3) is ~1.0B with depth 27.
-
-Dataset for the 1B run: Chinchilla wants >=20B tokens. Recommended:
-`HuggingFaceFW/fineweb-edu` config `sample-100BT` -- same distribution as the
-current runs (clean continuity for cross-scale comparisons), 100B tokens so a
-single-epoch 20-30B subset never repeats. Stronger-mix alternative if we're
-willing to break continuity: `mlfoundations/dclm-baseline-1.0`.
-
-## Planned: v4 -- QKV spanning tree (dilated attention)
-
-Design agreed 2026-08-28. Target: close part of the measured 0.42-nat gap
-between v3 (3.786) and t1 (3.365) while staying O(T log T) and
-length-agnostic. Lives side by side with v3: new module `tree_attention.py`,
-`arch='v4'`; the v3 classes are not touched.
-
-**Core op (`DilatedAttention`)**: at a layer with dilation d and window w,
-position i attends over the candidate set {i - j*d : j = 0..w-1} -- multi-head
-q.k softmax over w slots, plus a learned per-slot, per-head bias (T5-style,
-w x heads params). The bias is the exact analogue of the conv kernel's
-per-offset weights, so uniform-query behavior recovers a dilated conv as a
-special case; content-dependence is strictly added expressivity. No global
-PE (v3 lesson); slot bias carries local offset identity. RoPE on q/k is the
-ablation alternative if slot bias underperforms.
-
-**Implementation**: per slot j, left-pad K/V by j*d in time and slice (a
-w-iteration python loop of tensor slices, w is small); scores (B, H, T, w),
-mask slots reaching before t=0, softmax over w, weighted-sum values, output
-projection. Memory ~w x the K/V tensors -- fine at w=8, T=4096, A100.
-
-**Block/stack**: reuse the v3 macro-structure unchanged -- pre-norm block,
-residual stream, per-layer 1x1 skip tap, head consumes LayerNorm(sum of
-skips), tied embeddings with 0.02 init. The ONLY change vs v3 is
-GatedCausalConv1d -> DilatedAttention, keeping the ablation clean.
-
-**Schedule**: dilations d = w^l for l in 0..L-1 (one cycle covers w^L >=
-max_length; w=8, T=4096 -> L=4), repeated for C cycles (default 3 -> 12
-layers, ~94M params at dim 1024 -- in family with v2/v3/t1). New hparams
-`window` (8), `cycles` (3); CLI --window/--cycles.
-
-**Validation before the 5h run**: (1) unit tests -- causality parametrized,
-full-context reachability (perturb token 0, prediction at T-1 moves), tying/
-trains; (2) a 10-minute synthetic associative-recall probe (Zoology-style:
-key-value pairs in context, query at the end) at tiny scale comparing
-v3/v4/t1 -- v4's reason to exist is that probe, so measure it first.
-
-**Run**: identical fineweb recipe (55k steps, 1.8B tokens), run name
-fineweb-edu-v4-*; readout vs v3 3.786 / t1 3.365, plus wikitext cross-eval
-and samples.
-
-**Known risks**: value must survive C*L relay hops for exact long-range
-recall (cycles >= 2 so late cycles re-route with better keys); slot softmax
-includes j=0 self, giving a natural pass-through path; watch GPU util on the
-slice-loop implementation.
-- `chat.py`'s HF GenerationMixin shim no longer survives modern transformers
-  (cache prep wants a real model config: `num_hidden_layers` etc.). A plain
-  top-k/top-p sampling loop over `SummNet.forward` is ~15 lines and drops the
-  transformers surface entirely.
-- Log a few fixed-prompt samples at each validation pass (to MLflow) so
-  subjective quality is visible per checkpoint without manual sampling.
-
-- WaveNet-style gated activations (GLU / tanh x sigmoid) instead of LeakyReLU
-  inside the residual blocks, and skip-connection aggregation into the head.
-- Tie the embedding and output projection weights.
-- A real long run to re-baseline: wikitext-103, compare against GCNN-8 (44.9
-  test PPL) / TCN-class numbers. Note `test_loss` is now nats/token over
-  packed windows; ppl = exp(loss).
-- Tokenizing in the training process is the only data-path worker now; if the
-  GPU starves on a big run, move `PackedWindows` behind a worker or pre-pack
-  to disk.
-
-## PG19 @ 64k verdict (2026-09-06) -- first outright quality win
-
-Equal 1.8B-token budget, 27.5k steps x 65,536 tokens, batch 1, one epoch:
-
-    v4m w=256 (2 hops)  val 3.578 / test 3.459   157k tok/s   3.0h   175M F/tok
-    t1 (learned PE)     val 4.118 / test 4.019    42k tok/s  11.8h  1079M F/tok
-
-The tree beats the transformer by 0.54-0.56 nats at 3.9x the measured
-speed and ~1/6 the FLOPs. t1 never crossed over: its slow start compounds
-at 64k (attention allocation over 65k positions + a 50M-param PE table
-trained on one sequence/step) and the iso-token budget never lets it
-recover. Caveats recorded honestly: (1) at iso-COMPUTE t1 would get ~6x
-the steps and would likely close much of the gap -- but that is exactly
-the tree's argument; (2) t1 is GPT-2-style learned-PE; a RoPE baseline
-would likely start faster at long context and is the fair modern
-comparison if this result is ever written up. Subjectively v4m emits
-coherent Victorian prose with correct dialogue attribution and even
-abbreviation-expansion coreference ("the Rev." -> "The Reverend Mr.
-Jordan"); t1's samples derail grammatically ("cried the door").
+1. **~1B scaling ladder** (94M -> 250M -> 1B). Shapes to test: wider vs
+   deeper at fixed w=256/2-hop; d=2048-3072. Data: fineweb-edu
+   sample-100BT (pack it; ~20-30B tokens/run). LR transfer: verify the
+   sweep's LR holds at 250M before committing 1B GPU-time.
+2. **RoPE t1 baseline** for any write-up of the long-context result.
+3. **Repetition metric** (distinct-n per checkpoint) so "loops more" is a
+   number; sampler already has min-p + rep-penalty (scripts/sample.py).
+4. **Associative-recall probe** (scripts/recall_probe.py) is still not a
+   trustworthy discriminator (all archs plateau ~0.38 at probe scale);
+   needs Zoology-reference config before drawing capability conclusions.
+5. **chat.py rewrite**: HF GenerationMixin shim is dead under modern
+   transformers; fold scripts/sample.py logic in.
+6. **MLflow backfills pending** (server had 503 outage 09-03+): t1-16k,
+   both PG19-64k runs, and the sweep ran on tensorboard logging --
+   backfill via scripts/backfill_mlflow.py when the server returns.
+   Ops: mlflow.pbd.vc (Northflank) has had two incidents; train.py's
+   FailSoftMLFlowLogger now survives both mid-run blips and setup-time
+   outages.
