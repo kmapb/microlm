@@ -181,6 +181,8 @@ def main(argv: List[str]):
                         help='Training batches between validation passes')
     parser.add_argument('--test-only', action='store_true',
                         help='Just test the checkpoint')
+    parser.add_argument('--skip-test', action='store_true',
+                        help='Skip the post-fit test pass (sweep runs)')
     parser.add_argument('--mlflow-run-id', type=str, default=None,
                         help='Resume logging into this existing MLflow run '
                              '(pairs with --checkpoint-restore)')
@@ -277,7 +279,8 @@ def main(argv: List[str]):
             args.embedding_width, args.kernel_size)
         trainer.save_checkpoint(str(final))
         print("wrote {}".format(final))
-    trainer.test(model, dm)
+    if not args.skip_test:
+        trainer.test(model, dm)
 
 
 if __name__ == "__main__":
