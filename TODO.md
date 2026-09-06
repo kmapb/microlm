@@ -195,3 +195,23 @@ slice-loop implementation.
 - Tokenizing in the training process is the only data-path worker now; if the
   GPU starves on a big run, move `PackedWindows` behind a worker or pre-pack
   to disk.
+
+## PG19 @ 64k verdict (2026-09-06) -- first outright quality win
+
+Equal 1.8B-token budget, 27.5k steps x 65,536 tokens, batch 1, one epoch:
+
+    v4m w=256 (2 hops)  val 3.578 / test 3.459   157k tok/s   3.0h   175M F/tok
+    t1 (learned PE)     val 4.118 / test 4.019    42k tok/s  11.8h  1079M F/tok
+
+The tree beats the transformer by 0.54-0.56 nats at 3.9x the measured
+speed and ~1/6 the FLOPs. t1 never crossed over: its slow start compounds
+at 64k (attention allocation over 65k positions + a 50M-param PE table
+trained on one sequence/step) and the iso-token budget never lets it
+recover. Caveats recorded honestly: (1) at iso-COMPUTE t1 would get ~6x
+the steps and would likely close much of the gap -- but that is exactly
+the tree's argument; (2) t1 is GPT-2-style learned-PE; a RoPE baseline
+would likely start faster at long context and is the fair modern
+comparison if this result is ever written up. Subjectively v4m emits
+coherent Victorian prose with correct dialogue attribution and even
+abbreviation-expansion coreference ("the Rev." -> "The Reverend Mr.
+Jordan"); t1's samples derail grammatically ("cried the door").
