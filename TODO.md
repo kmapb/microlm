@@ -86,9 +86,9 @@ budget end, grad clip 1.0, tokens/step up to 65k per A100.
    needs Zoology-reference config before drawing capability conclusions.
 5. **chat.py rewrite**: HF GenerationMixin shim is dead under modern
    transformers; fold scripts/sample.py logic in.
-6. **MLflow backfills pending** (server had 503 outage 09-03+): t1-16k,
-   both PG19-64k runs, and the sweep ran on tensorboard logging --
-   backfill via scripts/backfill_mlflow.py when the server returns.
-   Ops: mlflow.pbd.vc (Northflank) has had two incidents; train.py's
-   FailSoftMLFlowLogger now survives both mid-run blips and setup-time
-   outages.
+6. ~~MLflow backfills~~ **done 2026-10-20**: t1-16k, both PG19-64k runs,
+   and the five sweep runs (sweep-b{8,16}-lr*) are in experiment 25.
+   Ops: the 09-03..10-20 outage was a RAM-pegged 1GB instance (now 4GB);
+   restart then broke on unpinned deps and MLflow 3.x's CORS check, both
+   fixed in pebblebed/mlflow-svc (pinned mlflow 3.17.1). train.py's
+   FailSoftMLFlowLogger survives mid-run blips and setup-time outages.
